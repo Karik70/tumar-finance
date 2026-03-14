@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
+import Papa from 'papaparse'
 
 const CATEGORIES = ['pulto','montazh','zp','nalog','komissia','vozvrat','other']
 const CAT_LABELS: Record<string,string> = {pulto:'Пультовая абонентка',montazh:'Монтаж/установка',zp:'Зарплата',nalog:'Налоги',komissia:'Комиссия банка',vozvrat:'Возврат/ошибочный',other:'Прочее'}
@@ -16,6 +17,11 @@ export default function BankEntryPage() {
   const [form, setForm] = useState({ entry_date: new Date().toISOString().slice(0,10), bank:'narodniy', type:'income', amount:'', category:'pulto', description:'', counterparty:'' })
   const [msg, setMsg] = useState('')
   const [filter, setFilter] = useState({ bank:'all', type:'all', from:'', to:'' })
+  
+  // PDF Upload State
+  const [uploading, setUploading] = useState(false)
+  const [previewData, setPreviewData] = useState<any[]>([])
+  const [showPreview, setShowPreview] = useState(false)
 
   useEffect(() => {
     const s = createClient()
@@ -38,6 +44,84 @@ export default function BankEntryPage() {
     setTimeout(()=>setMsg(''),3000)
   }
 
+  // PDF Upload Logic
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setMsg('Парсинг PDF...')
+    
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const res = await fetch('/api/upload-statement', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Ошибка загрузки')
+      
+      setPreviewData(data.transactions)
+      setShowPreview(true)
+      setMsg('')
+    } catch (err: any) {
+      setMsg('❌ Ошибка: ' + err.message)
+    } finally {
+      setUploading(false)
+      e.target.value = '' // reset input
+    }
+  }
+
+  async function savePreviewData() {
+    setUploading(true)
+    const s = createClient()
+    const rowsToInsert = previewData.map(r => ({
+      entry_date: r.entry_date,
+      bank: r.bank,
+      type: r.type,
+      amount: r.amount,
+      category: r.category,
+      description: r.description,
+      counterparty: r.counterparty,
+      created_by: user.id
+    }))
+
+    const { error } = await s.from('bank_entries').insert(rowsToInsert)
+    if (error) {
+      setMsg('❌ Ошибка сохранения: ' + error.message)
+    } else {
+      setMsg(`✅ Успешно сохранено ${rowsToInsert.length} записей`)
+      setShowPreview(false)
+      setPreviewData([])
+      load(s)
+    }
+    setUploading(false)
+    setTimeout(()=>setMsg(''), 4000)
+  }
+
+  function handlePreviewChange(index: number, field: string, value: string) {
+    const newData = [...previewData]
+    newData[index][field] = value
+    setPreviewData(newData)
+  }
+
+  // Export Logic
+  function exportCSV() {
+    const dataToExport = filtered.map(r => ({
+      'Дата': r.entry_date,
+      'Банк': r.bank === 'narodniy' ? 'Народный' : 'Каспи',
+      'Тип': r.type === 'income' ? 'Приход' : 'Расход',
+      'Категория': CAT_LABELS[r.category] || r.category,
+      'Сумма': r.amount,
+      'Контрагент': r.counterparty,
+      'Описание': r.description
+    }))
+    const csv = Papa.unparse(dataToExport)
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `tumar_bank_export_${new Date().toISOString().slice(0,10)}.csv`
+    link.click()
+  }
+
   const filtered = entries.filter(r=>{
     if(filter.bank!=='all' && r.bank!==filter.bank) return false
     if(filter.type!=='all' && r.type!==filter.type) return false
@@ -52,10 +136,26 @@ export default function BankEntryPage() {
     <div style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
       <main style={{flex:1,padding:'28px 32px',minWidth:0}}>
-        <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>Выписка банка</h1>
-        <p style={{fontSize:13,color:'var(--text2)',marginBottom:28}}>Народный банк и Каспи — доходы и расходы</p>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:28}}>
+          <div>
+             <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>Выписка банка</h1>
+             <p style={{fontSize:13,color:'var(--text2)',margin:0}}>Народный банк и Каспи — доходы и расходы</p>
+          </div>
+          <div style={{display:'flex',gap:12}}>
+            <label style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:uploading?'wait':'pointer',display:'inline-flex',alignItems:'center',gap:6,color:'var(--text)'}}>
+              <input type="file" accept="application/pdf" onChange={handleFileUpload} style={{display:'none'}} disabled={uploading} />
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+              {uploading ? 'Загрузка...' : 'Загрузить PDF (Каспи/Халык)'}
+            </label>
+            <button onClick={exportCSV} style={{background:'var(--bg3)',border:'1px solid var(--border2)',color:'var(--text)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6}}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Экспорт CSV
+            </button>
+          </div>
+        </div>
 
         {/* Form */}
+        {!showPreview && (
         <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 24px',marginBottom:28}}>
           <div style={{fontSize:14,fontWeight:500,marginBottom:18}}>Добавить операцию</div>
           <form onSubmit={submit}>
@@ -105,6 +205,68 @@ export default function BankEntryPage() {
             </div>
           </form>
         </div>
+        )}
+
+        {/* Preview Modal for PDF Upload */}
+        {showPreview && (
+          <div style={{background:'var(--bg-elevated)',border:'1px dashed var(--border2)',borderRadius:12,padding:'22px 24px',marginBottom:28}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:500,color:'var(--blue)'}}>Распознано записей: {previewData.length}</div>
+              <div style={{display:'flex',gap:12}}>
+                <button onClick={()=>setShowPreview(false)} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',fontSize:13,cursor:'pointer',color:'var(--text2)'}}>Отмена</button>
+                <button onClick={savePreviewData} disabled={uploading} style={{background:'#2563eb',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer'}}>
+                  {uploading ? 'Сохранение...' : 'Сохранить все в базу'}
+                </button>
+              </div>
+            </div>
+            
+            <div style={{maxHeight:'400px',overflowY:'auto',background:'var(--bg)',borderRadius:8,border:'1px solid var(--border)'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead style={{position:'sticky',top:0,background:'var(--bg2)',zIndex:1}}>
+                  <tr>
+                    <th style={{padding:'8px',textAlign:'left',borderBottom:'1px solid var(--border)'}}>Дата</th>
+                    <th style={{padding:'8px',textAlign:'left',borderBottom:'1px solid var(--border)'}}>Банк / Тип</th>
+                    <th style={{padding:'8px',textAlign:'left',borderBottom:'1px solid var(--border)'}}>Сумма</th>
+                    <th style={{padding:'8px',textAlign:'left',borderBottom:'1px solid var(--border)'}}>Категория</th>
+                    <th style={{padding:'8px',textAlign:'left',borderBottom:'1px solid var(--border)'}}>Контрагент / Описание</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewData.map((r, i) => (
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)',background: i%2===0?'transparent':'rgba(0,0,0,0.02)'}}>
+                      <td style={{padding:'8px'}}>
+                        <input type="date" value={r.entry_date} onChange={e=>handlePreviewChange(i,'entry_date',e.target.value)} style={{fontSize:11,padding:'4px',border:'1px solid var(--border)',borderRadius:4}}/>
+                      </td>
+                      <td style={{padding:'8px'}}>
+                        <select value={r.bank} onChange={e=>handlePreviewChange(i,'bank',e.target.value)} style={{fontSize:11,padding:'4px',marginRight:4,border:'1px solid var(--border)',borderRadius:4}}>
+                          <option value="kaspi">Каспи</option>
+                          <option value="narodniy">Халык</option>
+                        </select>
+                        <select value={r.type} onChange={e=>handlePreviewChange(i,'type',e.target.value)} style={{fontSize:11,padding:'4px',border:'1px solid var(--border)',borderRadius:4}}>
+                          <option value="income">Приход</option>
+                          <option value="expense">Расход</option>
+                        </select>
+                      </td>
+                      <td style={{padding:'8px',fontWeight:600,fontFamily:'monospace'}}>
+                        <input type="number" value={r.amount} onChange={e=>handlePreviewChange(i,'amount',e.target.value)} style={{fontSize:11,padding:'4px',width:80,border:'1px solid var(--border)',borderRadius:4}}/>
+                      </td>
+                      <td style={{padding:'8px'}}>
+                        <select value={r.category} onChange={e=>handlePreviewChange(i,'category',e.target.value)} style={{fontSize:11,padding:'4px',border:'1px solid var(--border)',borderRadius:4,maxWidth:120}}>
+                          {CATEGORIES.map(c=><option key={c} value={c}>{CAT_LABELS[c]}</option>)}
+                        </select>
+                      </td>
+                      <td style={{padding:'8px'}}>
+                        <div style={{marginBottom:4}}><input value={r.counterparty} onChange={e=>handlePreviewChange(i,'counterparty',e.target.value)} placeholder="Контрагент" style={{fontSize:11,padding:'4px',width:'100%',border:'1px solid var(--border)',borderRadius:4}}/></div>
+                        <div><input value={r.description} onChange={e=>handlePreviewChange(i,'description',e.target.value)} placeholder="Описание" style={{fontSize:11,padding:'4px',width:'100%',border:'1px solid var(--border)',borderRadius:4}}/></div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {msg && <div style={{marginTop:12,fontSize:13,color:'var(--red)'}}>{msg}</div>}
+          </div>
+        )}
 
         {/* Filters */}
         <div style={{display:'flex',gap:12,marginBottom:14,flexWrap:'wrap',alignItems:'flex-end'}}>
