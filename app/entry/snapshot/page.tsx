@@ -44,8 +44,8 @@ export default function SnapshotPage() {
     <div style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
       <main style={{flex:1,padding:'28px 32px',minWidth:0}}>
-        <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>Остатки счетов (пятница)</h1>
-        <p style={{fontSize:13,color:'var(--text2)',marginBottom:28}}>Еженедельная сверка — вносить каждую пятницу</p>
+        <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>Остатки счетов (ежедневно)</h1>
+        <p style={{fontSize:13,color:'var(--text2)',marginBottom:28}}>Ежедневная сверка — вносить каждый день для директора</p>
 
         {last && (
           <div style={{background:diff>=0?'var(--green-bg)':'var(--red-bg)',border:`1px solid ${diff>=0?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}`,borderRadius:12,padding:'16px 22px',marginBottom:24,display:'flex',gap:32,flexWrap:'wrap'}}>

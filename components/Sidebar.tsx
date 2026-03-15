@@ -7,7 +7,7 @@ const NAV = [
   { href:'/dashboard',        icon:'📊', label:'Дашборд' },
   { href:'/entry/bank',       icon:'🏦', label:'Выписка банка' },
   { href:'/entry/cash',       icon:'💵', label:'Расход наличных' },
-  { href:'/entry/snapshot',   icon:'📋', label:'Остатки (пятница)' },
+  { href:'/entry/snapshot',   icon:'📋', label:'Остатки (ежедневно)' },
   { href:'/analytics',        icon:'📈', label:'Аналитика' },
   { href:'/salary',           icon:'👥', label:'ЗП / Покрытие' },
 ]
