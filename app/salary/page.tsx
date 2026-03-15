@@ -53,15 +53,15 @@ export default function SalaryPage() {
   const rule40=Math.round(bankIncome*0.4)
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
+    <div className="app-layout" style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
-      <main style={{flex:1,padding:'28px 32px',minWidth:0}}>
+      <main className="app-main" style={{flex:1,padding:'28px 32px',minWidth:0}}>
         <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>ЗП / Покрытие</h1>
         <p style={{fontSize:13,color:'var(--text2)',marginBottom:28}}>Плановый фонд зарплаты и контроль покрытия</p>
 
         {/* Coverage widget */}
         {snap && (
-          <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 28px',marginBottom:24,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:24,flexWrap:'wrap'}}>
+          <div className="grid-coverage" style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 28px',marginBottom:24,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:24}}>
             <div>
               <div style={{fontSize:12,color:'var(--text2)',marginBottom:6}}>Остаток на счетах</div>
               <div style={{fontSize:28,fontWeight:700,color:'var(--blue)'}}>{fmt(totalBalance)} ₸</div>
@@ -86,8 +86,8 @@ export default function SalaryPage() {
         )}
 
         {/* 40% rule tip */}
-        <div style={{background:'var(--amber-bg)',border:'1px solid rgba(210,153,34,.3)',borderRadius:12,padding:'14px 20px',marginBottom:24,display:'flex',alignItems:'center',gap:16}}>
-          <div style={{fontSize:24}}>💡</div>
+        <div className="tip-box" style={{background:'var(--amber-bg)',border:'1px solid rgba(210,153,34,.3)',borderRadius:12,padding:'14px 20px',marginBottom:24,display:'flex',alignItems:'center',gap:16}}>
+          <div className="tip-icon" style={{fontSize:24}}>💡</div>
           <div>
             <div style={{fontSize:13,fontWeight:500,color:'var(--amber)',marginBottom:2}}>Правило 40% — фонд ЗП за этот месяц</div>
             <div style={{fontSize:13,color:'var(--text2)'}}>
@@ -100,7 +100,7 @@ export default function SalaryPage() {
         <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 24px',marginBottom:28}}>
           <div style={{fontSize:14,fontWeight:500,marginBottom:18}}>Добавить план ФОТ</div>
           <form onSubmit={submit}>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:14}}>
+            <div className="grid-form" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:14}}>
               <div>
                 <label style={{fontSize:12,color:'var(--text2)',display:'block',marginBottom:5}}>Месяц</label>
                 <input type="date" value={form.month} onChange={e=>setForm(f=>({...f,month:e.target.value}))} required />
@@ -132,27 +132,29 @@ export default function SalaryPage() {
         </div>
 
         {/* History */}
-        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-            <thead>
-              <tr>{['Месяц','Общий ФОТ','Банк','Наличные','Налоги (≈12%)','Заметки'].map(h=>(
-                <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
-              ))}</tr>
-            </thead>
-            <tbody>
-              {plans.length===0&&<tr><td colSpan={6} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет данных</td></tr>}
-              {plans.map((r,i)=>(
-                <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                  <td style={{padding:'9px 14px',fontWeight:500}}>{new Date(r.month).toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</td>
-                  <td style={{padding:'9px 14px',fontWeight:600,color:'var(--amber)'}}>{fmt(Number(r.total_planned))} ₸</td>
-                  <td style={{padding:'9px 14px',color:'var(--blue)'}}>{r.bank_part?fmt(Number(r.bank_part))+' ₸':'—'}</td>
-                  <td style={{padding:'9px 14px',color:'var(--text2)'}}>{r.cash_part?fmt(Number(r.cash_part))+' ₸':'—'}</td>
-                  <td style={{padding:'9px 14px',color:'var(--text2)'}}>{fmt(Math.round(Number(r.total_planned)*0.12))} ₸</td>
-                  <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)'}}>{r.notes||'—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="table-wrap" style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:650}}>
+              <thead>
+                <tr>{['Месяц','Общий ФОТ','Банк','Наличные','Налоги (≈12%)','Заметки'].map(h=>(
+                  <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {plans.length===0&&<tr><td colSpan={6} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет данных</td></tr>}
+                {plans.map((r,i)=>(
+                  <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
+                    <td style={{padding:'9px 14px',fontWeight:500,whiteSpace:'nowrap'}}>{new Date(r.month).toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</td>
+                    <td style={{padding:'9px 14px',fontWeight:600,color:'var(--amber)',whiteSpace:'nowrap'}}>{fmt(Number(r.total_planned))} ₸</td>
+                    <td style={{padding:'9px 14px',color:'var(--blue)',whiteSpace:'nowrap'}}>{r.bank_part?fmt(Number(r.bank_part))+' ₸':'—'}</td>
+                    <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.cash_part?fmt(Number(r.cash_part))+' ₸':'—'}</td>
+                    <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{fmt(Math.round(Number(r.total_planned)*0.12))} ₸</td>
+                    <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)'}}>{r.notes||'—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
     </div>

@@ -19,3 +19,121 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI'
 input,select,textarea{background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:8px;padding:8px 12px;font-size:14px;outline:none;transition:border-color .15s;width:100%;}
 input:focus,select:focus,textarea:focus{border-color:var(--blue);}
 input[type=checkbox]{width:auto;accent-color:#2563eb;}
+
+/* Mobile-first responsive helpers */
+@media (max-width: 767px) {
+  /* Main layout: stack vertically, add top padding for hamburger */
+  .app-layout {
+    flex-direction: column !important;
+  }
+  .app-main {
+    padding: 16px !important;
+    padding-top: 60px !important;
+  }
+  /* Grid overrides */
+  .grid-stats {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+  .grid-charts {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .grid-form {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .grid-coverage {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+  /* Status banner */
+  .status-banner {
+    flex-direction: column !important;
+    padding: 14px 16px !important;
+    gap: 12px !important;
+  }
+  /* Table scroll */
+  .table-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-wrap table {
+    min-width: 600px;
+  }
+  /* Header row */
+  .page-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  .header-actions {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+  }
+  .header-actions > * {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    text-align: center !important;
+    justify-content: center !important;
+  }
+  /* Filter row */
+  .filter-row {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .filter-row select,
+  .filter-row input {
+    width: 100% !important;
+  }
+  /* Totals row */
+  .totals-row {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .totals-row > div {
+    flex: 1 1 auto !important;
+    min-width: 120px !important;
+  }
+  /* Snapshot summary */
+  .snap-summary {
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 14px 16px !important;
+  }
+  .snap-values {
+    gap: 12px !important;
+  }
+  /* Analytics controls */
+  .analytics-controls {
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  /* Cards */
+  .kpi-card {
+    padding: 12px 14px !important;
+  }
+  .kpi-card .kpi-value {
+    font-size: 18px !important;
+  }
+  /* 40% rule tip */
+  .tip-box {
+    padding: 12px 14px !important;
+    gap: 10px !important;
+  }
+  .tip-box .tip-icon {
+    display: none !important;
+  }
+}
+
+/* Small phones */
+@media (max-width: 374px) {
+  .grid-stats {
+    grid-template-columns: 1fr !important;
+  }
+  .app-main {
+    padding: 12px !important;
+    padding-top: 56px !important;
+  }
+}

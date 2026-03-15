@@ -41,19 +41,19 @@ export default function SnapshotPage() {
   const diff = last ? total - Number(last.zp_remaining) : 0
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
+    <div className="app-layout" style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
-      <main style={{flex:1,padding:'28px 32px',minWidth:0}}>
+      <main className="app-main" style={{flex:1,padding:'28px 32px',minWidth:0}}>
         <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>Остатки счетов (ежедневно)</h1>
         <p style={{fontSize:13,color:'var(--text2)',marginBottom:28}}>Ежедневная сверка — вносить каждый день для директора</p>
 
         {last && (
-          <div style={{background:diff>=0?'var(--green-bg)':'var(--red-bg)',border:`1px solid ${diff>=0?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}`,borderRadius:12,padding:'16px 22px',marginBottom:24,display:'flex',gap:32,flexWrap:'wrap'}}>
+          <div className="snap-summary" style={{background:diff>=0?'var(--green-bg)':'var(--red-bg)',border:`1px solid ${diff>=0?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}`,borderRadius:12,padding:'16px 22px',marginBottom:24,display:'flex',gap:32,flexWrap:'wrap'}}>
             <div>
               <div style={{fontSize:11,color:'var(--text2)',marginBottom:4}}>Последняя сверка: {last.snap_date}</div>
               <div style={{fontSize:22,fontWeight:700,color:diff>=0?'var(--green)':'var(--red)'}}>{diff>=0?'✅ Хватает':'🔴 Не хватает'} {Math.abs(diff).toLocaleString('ru-RU')} ₸</div>
             </div>
-            <div style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'center'}}>
+            <div className="snap-values" style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'center'}}>
               {[['Нар. банк',last.balance_narodniy,'var(--blue)'],['Каспи',last.balance_kaspi,'var(--amber)'],['Нал',last.balance_cash,'var(--text)'],['На ЗП',last.zp_remaining,'var(--red)']].map(([l,v,c])=>(
                 <div key={String(l)}>
                   <div style={{fontSize:11,color:'var(--text2)'}}>{l}</div>
@@ -67,7 +67,7 @@ export default function SnapshotPage() {
         <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 24px',marginBottom:28}}>
           <div style={{fontSize:14,fontWeight:500,marginBottom:18}}>Внести остатки</div>
           <form onSubmit={submit}>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:14}}>
+            <div className="grid-form" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:14}}>
               {[['snap_date','Дата','date'],['balance_narodniy','Нар. банк, ₸','number'],['balance_kaspi','Каспи, ₸','number'],['balance_cash','Наличные, ₸','number'],['zp_remaining','Нужно на ЗП, ₸','number']].map(([k,l,t])=>(
                 <div key={k}>
                   <label style={{fontSize:12,color:'var(--text2)',display:'block',marginBottom:5}}>{l}</label>
@@ -88,33 +88,35 @@ export default function SnapshotPage() {
           </form>
         </div>
 
-        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-            <thead>
-              <tr>{['Дата','Нар. банк','Каспи','Нал','Итого','На ЗП','Статус','Заметки'].map(h=>(
-                <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.04em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
-              ))}</tr>
-            </thead>
-            <tbody>
-              {snaps.length===0&&<tr><td colSpan={8} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
-              {snaps.map((r,i)=>{
-                const tot=Number(r.balance_narodniy)+Number(r.balance_kaspi)+Number(r.balance_cash)
-                const d=tot-Number(r.zp_remaining)
-                return (
-                  <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                    <td style={{padding:'9px 14px',fontWeight:500}}>{r.snap_date}</td>
-                    <td style={{padding:'9px 14px',color:'var(--blue)',fontVariantNumeric:'tabular-nums'}}>{fmt(Number(r.balance_narodniy))}</td>
-                    <td style={{padding:'9px 14px',color:'var(--amber)',fontVariantNumeric:'tabular-nums'}}>{fmt(Number(r.balance_kaspi))}</td>
-                    <td style={{padding:'9px 14px',color:'var(--text2)',fontVariantNumeric:'tabular-nums'}}>{fmt(Number(r.balance_cash))}</td>
-                    <td style={{padding:'9px 14px',fontWeight:600,fontVariantNumeric:'tabular-nums'}}>{fmt(tot)}</td>
-                    <td style={{padding:'9px 14px',color:'var(--red)',fontVariantNumeric:'tabular-nums'}}>{fmt(Number(r.zp_remaining))}</td>
-                    <td style={{padding:'9px 14px'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:d>=0?'var(--green-bg)':'var(--red-bg)',color:d>=0?'var(--green)':'var(--red)'}}>{d>=0?`+${fmt(d)}`:`${fmt(d)}`}</span></td>
-                    <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.notes||'—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div className="table-wrap" style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:700}}>
+              <thead>
+                <tr>{['Дата','Нар. банк','Каспи','Нал','Итого','На ЗП','Статус','Заметки'].map(h=>(
+                  <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.04em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {snaps.length===0&&<tr><td colSpan={8} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
+                {snaps.map((r,i)=>{
+                  const tot=Number(r.balance_narodniy)+Number(r.balance_kaspi)+Number(r.balance_cash)
+                  const d=tot-Number(r.zp_remaining)
+                  return (
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
+                      <td style={{padding:'9px 14px',fontWeight:500,whiteSpace:'nowrap'}}>{r.snap_date}</td>
+                      <td style={{padding:'9px 14px',color:'var(--blue)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_narodniy))}</td>
+                      <td style={{padding:'9px 14px',color:'var(--amber)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_kaspi))}</td>
+                      <td style={{padding:'9px 14px',color:'var(--text2)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_cash))}</td>
+                      <td style={{padding:'9px 14px',fontWeight:600,fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(tot)}</td>
+                      <td style={{padding:'9px 14px',color:'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.zp_remaining))}</td>
+                      <td style={{padding:'9px 14px',whiteSpace:'nowrap'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:d>=0?'var(--green-bg)':'var(--red-bg)',color:d>=0?'var(--green)':'var(--red)'}}>{d>=0?`+${fmt(d)}`:`${fmt(d)}`}</span></td>
+                      <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.notes||'—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
     </div>

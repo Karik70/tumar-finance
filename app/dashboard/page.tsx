@@ -90,9 +90,9 @@ export default function Dashboard() {
   const diff = totalBalance - stats.zp_remaining
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
+    <div className="app-layout" style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
-      <main style={{flex:1,padding:'28px 32px',minWidth:0,overflowX:'hidden'}}>
+      <main className="app-main" style={{flex:1,padding:'28px 32px',minWidth:0,overflowX:'hidden'}}>
         <div style={{marginBottom:28}}>
           <h1 style={{fontSize:22,fontWeight:600,margin:0}}>Дашборд</h1>
           <p style={{fontSize:13,color:'var(--text2)',margin:'4px 0 0'}}>
@@ -101,7 +101,7 @@ export default function Dashboard() {
         </div>
 
         {/* Status banner */}
-        <div style={{background:diff>=0?'var(--green-bg)':'var(--red-bg)',border:`1px solid ${diff>=0?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}`,borderRadius:12,padding:'16px 22px',marginBottom:24,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
+        <div className="status-banner" style={{background:diff>=0?'var(--green-bg)':'var(--red-bg)',border:`1px solid ${diff>=0?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}`,borderRadius:12,padding:'16px 22px',marginBottom:24,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
           <div>
             <div style={{fontSize:13,color:'var(--text2)',marginBottom:4}}>
               {diff>=0 ? '✅ Денег на ЗП хватает' : '🔴 Не хватает на выплату ЗП'}
@@ -123,14 +123,14 @@ export default function Dashboard() {
         </div>
 
         {/* Top stats */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:24}}>
+        <div className="grid-stats" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:24}}>
           <StatCard label="Нар. банк (остаток)" value={stats.balance_bank} color="blue" />
           <StatCard label="Каспи (остаток)" value={stats.balance_kaspi} color={stats.balance_kaspi>0?'amber':'default'} />
           <StatCard label="Наличные (касса)" value={stats.balance_cash} color="default" />
           <StatCard label="Нужно на ЗП" value={stats.zp_remaining} color="red" />
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:28}}>
+        <div className="grid-stats" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:28}}>
           <StatCard label="Поступило за месяц" value={stats.income} color="green" />
           <StatCard label="Расход через банк" value={stats.expense} color="default" />
           <StatCard label="Расход наличными" value={stats.cash_expense} color="default" />
@@ -138,7 +138,7 @@ export default function Dashboard() {
         </div>
 
         {/* Charts */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:28}}>
+        <div className="grid-charts" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:28}}>
           <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
             <div style={{fontSize:13,fontWeight:500,marginBottom:16}}>Приход / расход по месяцам</div>
             <ResponsiveContainer width="100%" height={200}>
@@ -170,7 +170,7 @@ export default function Dashboard() {
         {/* Recent */}
         <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
           <div style={{fontSize:13,fontWeight:500,marginBottom:14}}>Последние операции</div>
-          <div style={{overflowX:'auto'}}>
+          <div className="table-wrap" style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
               <thead>
                 <tr style={{color:'var(--text2)',textAlign:'left'}}>
@@ -185,13 +185,13 @@ export default function Dashboard() {
                 )}
                 {recentEntries.map((r,i)=>(
                   <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                    <td style={{padding:'9px 10px',color:'var(--text2)'}}>{r.entry_date}</td>
+                    <td style={{padding:'9px 10px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.entry_date}</td>
                     <td style={{padding:'9px 10px',maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.description||'—'}</td>
                     <td style={{padding:'9px 10px'}}>
-                      <span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.source==='Нар. банк'?'var(--blue-bg)':r.source==='Каспи'?'var(--amber-bg)':'var(--bg3)',color:r.source==='Нар. банк'?'var(--blue)':r.source==='Каспи'?'var(--amber)':'var(--text2)'}}>{r.source}</span>
+                      <span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.source==='Нар. банк'?'var(--blue-bg)':r.source==='Каспи'?'var(--amber-bg)':'var(--bg3)',color:r.source==='Нар. банк'?'var(--blue)':r.source==='Каспи'?'var(--amber)':'var(--text2)',whiteSpace:'nowrap'}}>{r.source}</span>
                     </td>
                     <td style={{padding:'9px 10px',color:'var(--text2)',fontSize:12}}>{r.category||'—'}</td>
-                    <td style={{padding:'9px 10px',fontWeight:500,color:r.type==='income'?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums'}}>
+                    <td style={{padding:'9px 10px',fontWeight:500,color:r.type==='income'?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>
                       {r.type==='income'?'+':'-'}{fmt(Number(r.amount))} ₸
                     </td>
                   </tr>

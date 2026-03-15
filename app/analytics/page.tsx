@@ -54,30 +54,25 @@ export default function AnalyticsPage() {
     setBankRaw(bank)
     setCashRaw(cash)
 
-    // Income by category pie
     const incMap: Record<string,number> = {}
     bank.filter((r:any)=>r.type==='income').forEach((r:any)=>{ incMap[r.category]=(incMap[r.category]||0)+Number(r.amount) })
     setIncomePie(Object.entries(incMap).map(([k,v])=>({name:CAT_LABELS[k]||k,value:Math.round(v)})))
 
-    // Expense by category
     const expMap: Record<string,number> = {}
     bank.filter((r:any)=>r.type==='expense').forEach((r:any)=>{ expMap[r.category]=(expMap[r.category]||0)+Number(r.amount) })
     cash.filter((r:any)=>r.type==='expense').forEach((r:any)=>{ expMap[r.category]=(expMap[r.category]||0)+Number(r.amount) })
     setExpensePie(Object.entries(expMap).map(([k,v])=>({name:CAT_LABELS[k]||k,value:Math.round(v)})))
 
-    // Bank split
     const nar = bank.filter((r:any)=>r.bank==='narodniy'&&r.type==='income').reduce((s:number,r:any)=>s+Number(r.amount),0)
     const kas = bank.filter((r:any)=>r.bank==='kaspi'&&r.type==='income').reduce((s:number,r:any)=>s+Number(r.amount),0)
     setBankData([{name:'Нар. банк',value:Math.round(nar)},{name:'Каспи',value:Math.round(kas)}])
     setLoading(false)
   }
 
-  // Aggregate data by view mode
   const chartData = useMemo(() => {
     const map: Record<string, { income: number; expense: number }> = {}
 
     if (view === 'daily') {
-      // Daily: group by date
       bankRaw.forEach((r: any) => {
         const k = r.entry_date
         if (!map[k]) map[k] = { income: 0, expense: 0 }
@@ -102,7 +97,6 @@ export default function AnalyticsPage() {
           }
         })
     } else if (view === 'weekly') {
-      // Weekly: group by week
       bankRaw.forEach((r: any) => {
         const k = getWeekKey(r.entry_date)
         if (!map[k]) map[k] = { income: 0, expense: 0 }
@@ -124,7 +118,6 @@ export default function AnalyticsPage() {
           profit: Math.round(v.income - v.expense),
         }))
     } else {
-      // Monthly
       const now = new Date()
       for (let i = period - 1; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
@@ -165,16 +158,15 @@ export default function AnalyticsPage() {
   if(loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',color:'var(--text2)'}}>Загрузка...</div>
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
+    <div className="app-layout" style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
-      <main style={{flex:1,padding:'28px 32px',minWidth:0}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:12}}>
+      <main className="app-main" style={{flex:1,padding:'28px 32px',minWidth:0}}>
+        <div className="page-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:28,flexWrap:'wrap',gap:12}}>
           <div>
             <h1 style={{fontSize:22,fontWeight:600,margin:0}}>Аналитика</h1>
             <p style={{fontSize:13,color:'var(--text2)',margin:'4px 0 0'}}>Автоматический анализ по всем данным</p>
           </div>
-          <div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>
-            {/* View mode toggle */}
+          <div className="analytics-controls" style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>
             <div style={{display:'flex',gap:4,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:3}}>
               {(['daily','weekly','monthly'] as ViewMode[]).map(v=>(
                 <button key={v} onClick={()=>setView(v)} style={{padding:'5px 12px',borderRadius:6,border:'none',background:view===v?'var(--blue)':'transparent',color:view===v?'#fff':'var(--text2)',fontSize:12,cursor:'pointer',fontWeight:view===v?500:400}}>
@@ -182,7 +174,6 @@ export default function AnalyticsPage() {
                 </button>
               ))}
             </div>
-            {/* Period selector */}
             <div style={{display:'flex',gap:8}}>
               {[3,6,12].map(m=>(
                 <button key={m} onClick={()=>{setPeriod(m);const s=createClient();load(s,m)}} style={{padding:'6px 16px',borderRadius:8,border:'1px solid',borderColor:period===m?'var(--blue)':'var(--border2)',background:period===m?'var(--blue-bg)':'transparent',color:period===m?'var(--blue)':'var(--text2)',fontSize:13,cursor:'pointer'}}>
@@ -194,16 +185,16 @@ export default function AnalyticsPage() {
         </div>
 
         {/* KPI */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:24}}>
+        <div className="grid-stats" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:24}}>
           {[
             {l:'Доходы за период',v:totalIncome,c:'var(--green)',b:'var(--green-bg)',br:'rgba(63,185,80,.25)'},
             {l:'Расходы за период',v:totalExpense,c:'var(--red)',b:'var(--red-bg)',br:'rgba(248,81,73,.25)'},
             {l:'Чистый результат',v:totalProfit,c:totalProfit>=0?'var(--green)':'var(--red)',b:totalProfit>=0?'var(--green-bg)':'var(--red-bg)',br:totalProfit>=0?'rgba(63,185,80,.25)':'rgba(248,81,73,.25)'},
             {l:'Среднемесячный доход',v:Math.round(totalIncome/period),c:'var(--blue)',b:'var(--blue-bg)',br:'rgba(88,166,255,.25)'},
           ].map(({l,v,c,b,br})=>(
-            <div key={l} style={{background:b,border:`1px solid ${br}`,borderRadius:12,padding:'16px 20px'}}>
+            <div key={l} className="kpi-card" style={{background:b,border:`1px solid ${br}`,borderRadius:12,padding:'16px 20px'}}>
               <div style={{fontSize:11,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8}}>{l}</div>
-              <div style={{fontSize:22,fontWeight:700,color:c}}>{fmt(v)} ₸</div>
+              <div className="kpi-value" style={{fontSize:22,fontWeight:700,color:c}}>{fmt(v)} ₸</div>
             </div>
           ))}
         </div>
@@ -230,7 +221,7 @@ export default function AnalyticsPage() {
             <div style={{padding:'14px 20px',fontSize:13,fontWeight:500,borderBottom:'1px solid var(--border)'}}>
               Детализация {view==='daily'?'по дням':'по неделям'} ({chartData.length} {view==='daily'?'дн.':'нед.'})
             </div>
-            <div style={{maxHeight:320,overflowY:'auto'}}>
+            <div className="table-wrap" style={{maxHeight:320,overflowY:'auto',overflowX:'auto'}}>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                 <thead>
                   <tr>{[view==='daily'?'Дата':'Неделя','Доход','Расход','Результат'].map(h=>(
@@ -241,10 +232,10 @@ export default function AnalyticsPage() {
                   {chartData.length===0&&<tr><td colSpan={4} style={{padding:'20px',textAlign:'center',color:'var(--text3)'}}>Нет данных</td></tr>}
                   {chartData.map((r,i)=>(
                     <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                      <td style={{padding:'8px 14px',fontWeight:500}}>{r.label}</td>
-                      <td style={{padding:'8px 14px',color:'var(--green)',fontVariantNumeric:'tabular-nums'}}>{r.income>0?'+':''}{fmt(r.income)} ₸</td>
-                      <td style={{padding:'8px 14px',color:'var(--red)',fontVariantNumeric:'tabular-nums'}}>-{fmt(r.expense)} ₸</td>
-                      <td style={{padding:'8px 14px',fontWeight:600,color:r.profit>=0?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums'}}>{r.profit>=0?'+':''}{fmt(r.profit)} ₸</td>
+                      <td style={{padding:'8px 14px',fontWeight:500,whiteSpace:'nowrap'}}>{r.label}</td>
+                      <td style={{padding:'8px 14px',color:'var(--green)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{r.income>0?'+':''}{fmt(r.income)} ₸</td>
+                      <td style={{padding:'8px 14px',color:'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>-{fmt(r.expense)} ₸</td>
+                      <td style={{padding:'8px 14px',fontWeight:600,color:r.profit>=0?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{r.profit>=0?'+':''}{fmt(r.profit)} ₸</td>
                     </tr>
                   ))}
                 </tbody>
@@ -253,7 +244,7 @@ export default function AnalyticsPage() {
           </div>
         )}
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20,marginBottom:20}}>
+        <div className="grid-charts" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20,marginBottom:20}}>
           {/* Income by category */}
           <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
             <div style={{fontSize:13,fontWeight:500,marginBottom:14}}>Структура доходов</div>

@@ -17,8 +17,7 @@ export default function BankEntryPage() {
   const [form, setForm] = useState({ entry_date: new Date().toISOString().slice(0,10), bank:'narodniy', type:'income', amount:'', category:'pulto', description:'', counterparty:'' })
   const [msg, setMsg] = useState('')
   const [filter, setFilter] = useState({ bank:'all', type:'all', from:'', to:'' })
-  
-  // PDF Upload State
+
   const [uploading, setUploading] = useState(false)
   const [previewData, setPreviewData] = useState<any[]>([])
   const [showPreview, setShowPreview] = useState(false)
@@ -44,13 +43,12 @@ export default function BankEntryPage() {
     setTimeout(()=>setMsg(''),3000)
   }
 
-  // PDF Upload Logic
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
     setMsg('Парсинг PDF...')
-    
+
     const formData = new FormData()
     formData.append('file', file)
 
@@ -58,7 +56,7 @@ export default function BankEntryPage() {
       const res = await fetch('/api/upload-statement', { method: 'POST', body: formData })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Ошибка загрузки')
-      
+
       setPreviewData(data.transactions)
       setShowPreview(true)
       setMsg('')
@@ -66,7 +64,7 @@ export default function BankEntryPage() {
       setMsg('❌ Ошибка: ' + err.message)
     } finally {
       setUploading(false)
-      e.target.value = '' // reset input
+      e.target.value = ''
     }
   }
 
@@ -103,7 +101,6 @@ export default function BankEntryPage() {
     setPreviewData(newData)
   }
 
-  // Export Logic
   function exportCSV() {
     const dataToExport = filtered.map(r => ({
       'Дата': r.entry_date,
@@ -133,21 +130,21 @@ export default function BankEntryPage() {
   const totalOut = filtered.filter(r=>r.type==='expense').reduce((s,r)=>s+Number(r.amount),0)
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
+    <div className="app-layout" style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar userEmail={user?.email} />
-      <main style={{flex:1,padding:'28px 32px',minWidth:0}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:28}}>
+      <main className="app-main" style={{flex:1,padding:'28px 32px',minWidth:0}}>
+        <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:28}}>
           <div>
              <h1 style={{fontSize:22,fontWeight:600,margin:'0 0 6px'}}>Выписка банка</h1>
              <p style={{fontSize:13,color:'var(--text2)',margin:0}}>Народный банк и Каспи — доходы и расходы</p>
           </div>
-          <div style={{display:'flex',gap:12}}>
-            <label style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:uploading?'wait':'pointer',display:'inline-flex',alignItems:'center',gap:6,color:'var(--text)'}}>
+          <div className="header-actions" style={{display:'flex',gap:12}}>
+            <label style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:uploading?'wait':'pointer',display:'inline-flex',alignItems:'center',gap:6,color:'var(--text)',whiteSpace:'nowrap'}}>
               <input type="file" accept="application/pdf" onChange={handleFileUpload} style={{display:'none'}} disabled={uploading} />
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              {uploading ? 'Загрузка...' : 'Загрузить PDF (Каспи/Халык)'}
+              {uploading ? 'Загрузка...' : 'Загрузить PDF'}
             </label>
-            <button onClick={exportCSV} style={{background:'var(--bg3)',border:'1px solid var(--border2)',color:'var(--text)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6}}>
+            <button onClick={exportCSV} style={{background:'var(--bg3)',border:'1px solid var(--border2)',color:'var(--text)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               Экспорт CSV
             </button>
@@ -159,7 +156,7 @@ export default function BankEntryPage() {
         <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 24px',marginBottom:28}}>
           <div style={{fontSize:14,fontWeight:500,marginBottom:18}}>Добавить операцию</div>
           <form onSubmit={submit}>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:14,marginBottom:14}}>
+            <div className="grid-form" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:14,marginBottom:14}}>
               <div>
                 <label style={{fontSize:12,color:'var(--text2)',display:'block',marginBottom:5}}>Дата</label>
                 <input type="date" value={form.entry_date} onChange={e=>setForm(f=>({...f,entry_date:e.target.value}))} required />
@@ -210,18 +207,18 @@ export default function BankEntryPage() {
         {/* Preview Modal for PDF Upload */}
         {showPreview && (
           <div style={{background:'var(--bg-elevated)',border:'1px dashed var(--border2)',borderRadius:12,padding:'22px 24px',marginBottom:28}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:12}}>
               <div style={{fontSize:16,fontWeight:500,color:'var(--blue)'}}>Распознано записей: {previewData.length}</div>
               <div style={{display:'flex',gap:12}}>
                 <button onClick={()=>setShowPreview(false)} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',fontSize:13,cursor:'pointer',color:'var(--text2)'}}>Отмена</button>
                 <button onClick={savePreviewData} disabled={uploading} style={{background:'#2563eb',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer'}}>
-                  {uploading ? 'Сохранение...' : 'Сохранить все в базу'}
+                  {uploading ? 'Сохранение...' : 'Сохранить все'}
                 </button>
               </div>
             </div>
-            
-            <div style={{maxHeight:'400px',overflowY:'auto',background:'var(--bg)',borderRadius:8,border:'1px solid var(--border)'}}>
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+
+            <div className="table-wrap" style={{maxHeight:'400px',overflowY:'auto',overflowX:'auto',background:'var(--bg)',borderRadius:8,border:'1px solid var(--border)'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:700}}>
                 <thead style={{position:'sticky',top:0,background:'var(--bg2)',zIndex:1}}>
                   <tr>
                     <th style={{padding:'8px',textAlign:'left',borderBottom:'1px solid var(--border)'}}>Дата</th>
@@ -269,7 +266,7 @@ export default function BankEntryPage() {
         )}
 
         {/* Filters */}
-        <div style={{display:'flex',gap:12,marginBottom:14,flexWrap:'wrap',alignItems:'flex-end'}}>
+        <div className="filter-row" style={{display:'flex',gap:12,marginBottom:14,flexWrap:'wrap',alignItems:'flex-end'}}>
           <div>
             <label style={{fontSize:11,color:'var(--text2)',display:'block',marginBottom:4}}>Банк</label>
             <select value={filter.bank} onChange={e=>setFilter(f=>({...f,bank:e.target.value}))} style={{width:150}}>
@@ -297,7 +294,7 @@ export default function BankEntryPage() {
         </div>
 
         {/* Totals */}
-        <div style={{display:'flex',gap:12,marginBottom:16}}>
+        <div className="totals-row" style={{display:'flex',gap:12,marginBottom:16}}>
           <div style={{background:'var(--green-bg)',border:'1px solid rgba(63,185,80,.25)',borderRadius:8,padding:'8px 16px',fontSize:13}}>
             Приход: <strong style={{color:'var(--green)'}}>{fmt(totalIn)} ₸</strong>
           </div>
@@ -310,32 +307,34 @@ export default function BankEntryPage() {
         </div>
 
         {/* Table */}
-        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-            <thead>
-              <tr style={{color:'var(--text2)'}}>
-                {['Дата','Банк','Тип','Описание','Контрагент','Категория','Сумма'].map(h=>(
-                  <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)'}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length===0&&<tr><td colSpan={7} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
-              {filtered.map((r,i)=>(
-                <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                  <td style={{padding:'9px 14px',color:'var(--text2)'}}>{r.entry_date}</td>
-                  <td style={{padding:'9px 14px'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.bank==='narodniy'?'var(--blue-bg)':'var(--amber-bg)',color:r.bank==='narodniy'?'var(--blue)':'var(--amber)'}}>{r.bank==='narodniy'?'Нар.банк':'Каспи'}</span></td>
-                  <td style={{padding:'9px 14px'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.type==='income'?'var(--green-bg)':'var(--red-bg)',color:r.type==='income'?'var(--green)':'var(--red)'}}>{r.type==='income'?'Приход':'Расход'}</span></td>
-                  <td style={{padding:'9px 14px',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.description||'—'}</td>
-                  <td style={{padding:'9px 14px',color:'var(--text2)',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.counterparty||'—'}</td>
-                  <td style={{padding:'9px 14px',fontSize:11,color:'var(--text2)'}}>{CAT_LABELS[r.category]||r.category}</td>
-                  <td style={{padding:'9px 14px',fontWeight:600,color:r.type==='income'?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums'}}>
-                    {r.type==='income'?'+':'-'}{fmt(Number(r.amount))} ₸
-                  </td>
+        <div className="table-wrap" style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:700}}>
+              <thead>
+                <tr style={{color:'var(--text2)'}}>
+                  {['Дата','Банк','Тип','Описание','Контрагент','Категория','Сумма'].map(h=>(
+                    <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)'}}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.length===0&&<tr><td colSpan={7} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
+                {filtered.map((r,i)=>(
+                  <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
+                    <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.entry_date}</td>
+                    <td style={{padding:'9px 14px'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.bank==='narodniy'?'var(--blue-bg)':'var(--amber-bg)',color:r.bank==='narodniy'?'var(--blue)':'var(--amber)',whiteSpace:'nowrap'}}>{r.bank==='narodniy'?'Нар.банк':'Каспи'}</span></td>
+                    <td style={{padding:'9px 14px'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.type==='income'?'var(--green-bg)':'var(--red-bg)',color:r.type==='income'?'var(--green)':'var(--red)'}}>{r.type==='income'?'Приход':'Расход'}</span></td>
+                    <td style={{padding:'9px 14px',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.description||'—'}</td>
+                    <td style={{padding:'9px 14px',color:'var(--text2)',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.counterparty||'—'}</td>
+                    <td style={{padding:'9px 14px',fontSize:11,color:'var(--text2)',whiteSpace:'nowrap'}}>{CAT_LABELS[r.category]||r.category}</td>
+                    <td style={{padding:'9px 14px',fontWeight:600,color:r.type==='income'?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>
+                      {r.type==='income'?'+':'-'}{fmt(Number(r.amount))} ₸
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
     </div>
