@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { PDFParse } from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import { parseKaspi } from '@/lib/parsers/kaspi';
 import { parseHalyk } from '@/lib/parsers/halyk';
 
@@ -15,18 +15,12 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    let parser;
     let text = '';
     try {
-      parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
+      const result = await pdfParse(buffer);
       text = result.text;
     } catch (e: any) {
       return NextResponse.json({ error: 'Failed to parse PDF file: ' + e.message }, { status: 500 });
-    } finally {
-      if (parser) {
-        await parser.destroy();
-      }
     }
 
     // Attempt to identify the bank
