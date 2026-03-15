@@ -37,11 +37,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Не удалось определить банк (Поддерживаются только Kaspi и Halyk Bank).' }, { status: 400 });
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       bank: bankIdentified,
       count: transactions.length,
-      transactions 
+      transactions,
     });
 
   } catch (error: any) {
