@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase'
+import { createClient, ensureUserExists } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 
 const fmt = (n:number) => n.toLocaleString('ru-RU')
@@ -18,7 +18,7 @@ export default function SalaryPage() {
 
   useEffect(()=>{
     const s=createClient()
-    s.auth.getUser().then(({data})=>{if(!data.user){router.push('/login');return};setUser(data.user);load(s)})
+    s.auth.getUser().then(async ({data})=>{if(!data.user){router.push('/login');return}; await ensureUserExists(s, data.user); setUser(data.user);load(s)})
   },[])
 
   async function load(s:any){
