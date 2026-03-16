@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Конвертер кодировки JSON</title>
+<style>
+  body { font-family: sans-serif; max-width: 500px; margin: 60px auto; padding: 20px; background: #111; color: #eee; }
+  h2 { margin-bottom: 8px; }
+  p { color: #aaa; margin-bottom: 24px; }
+  input[type=file] { display: none; }
+  label { display: block; padding: 16px; background: #222; border: 2px dashed #444; border-radius: 8px; cursor: pointer; text-align: center; margin-bottom: 16px; }
+  label:hover { border-color: #888; }
+  #status { padding: 12px; border-radius: 6px; display: none; }
+  .ok { background: #1a3a1a; color: #6f6; }
+  .err { background: #3a1a1a; color: #f66; }
+</style>
+</head>
+<body>
+<h2>Конвертер кодировки JSON</h2>
+<p>Загрузите файл экспорта из системы охраны. Он будет конвертирован из Windows-1251 в UTF-8 и скачается автоматически.</p>
+
+<label for="file">Нажмите и выберите файл (.json или .obj_json)</label>
+<input type="file" id="file" accept=".json,.obj_json,application/json">
+
+<div id="status"></div>
+
+<script>
+document.getElementById('file').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const status = document.getElementById('status');
+  status.style.display = 'block';
+  status.className = '';
+  status.textContent = 'Читаю файл...';
+
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const buf = ev.target.result;
+      // Try UTF-8 first
+      let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      let encoding = 'UTF-8';
+      if (text.includes('\uFFFD')) {
+        text = new TextDecoder('windows-1251', { fatal: false }).decode(buf);
+        encoding = 'Windows-1251';
+      }
+      // Validate JSON
+      JSON.parse(text);
+
+      // Download as UTF-8
+      const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name.replace(/\.[^.]+$/, '') + '_utf8.json';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      status.className = 'ok';
+      status.textContent = `Готово! Исходная кодировка: ${encoding}. Файл скачан — загрузите его в приложение.`;
+    } catch(err) {
+      status.className = 'err';
+      status.textContent = 'Ошибка: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+</script>
+</body>
+</html>
