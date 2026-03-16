@@ -173,7 +173,12 @@ export default function RemotesPage() {
     if (!file) return
     setImportStatus('Читаю JSON...')
     try {
-      const text = await file.text()
+      const buf = await file.arrayBuffer()
+      // Try UTF-8 first; if it has replacement chars, fall back to Windows-1251
+      let text = new TextDecoder('utf-8').decode(buf)
+      if (text.includes('\uFFFD')) {
+        text = new TextDecoder('windows-1251').decode(buf)
+      }
       const raw = JSON.parse(text)
       const parsed = parsePultJSON(raw)
 
@@ -332,7 +337,7 @@ export default function RemotesPage() {
             >
               📥 Загрузить JSON
             </button>
-            <input ref={fileRef} type="file" accept=".json" onChange={handleJSONImport} style={{ display: 'none' }} />
+            <input ref={fileRef} type="file" accept=".json,.obj_json,*/*" onChange={handleJSONImport} style={{ display: 'none' }} />
             <button
               onClick={reconcileWithBank}
               disabled={reconciling || clients.length === 0}
