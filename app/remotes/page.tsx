@@ -393,12 +393,14 @@ export default function RemotesPage() {
       const d = new Date(selectedMonth)
       const nextMonth = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 1).toISOString().slice(0, 10)
 
+      // Only reconcile Halyk entries — Kaspi entries are always "АО KASPI BANK" (aggregated, no individual names)
       const allBankEntries: any[] = []
       let bf = 0; const BPAGE = 1000
       while (true) {
         const { data: bd } = await s.from('bank_entries')
           .select('counterparty, amount, description, entry_date')
           .eq('category', 'pulto').eq('type', 'income')
+          .neq('bank', 'kaspi')
           .gte('entry_date', monthStart).lt('entry_date', nextMonth)
           .range(bf, bf + BPAGE - 1)
         if (!bd || bd.length === 0) break
