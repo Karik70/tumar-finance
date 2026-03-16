@@ -56,11 +56,22 @@ export default function AnalyticsPage() {
     setLoading(true)
     const from = new Date(); from.setMonth(from.getMonth()-months+1); from.setDate(1)
     const fromStr = from.toISOString().slice(0,10)
-    const [bRes,cRes] = await Promise.all([
-      s.from('bank_entries').select('*').gte('entry_date',fromStr),
-      s.from('cash_entries').select('*').gte('entry_date',fromStr)
+    const fetchAll = async (table: string, dateFilter: string) => {
+      const all: any[] = []
+      let f = 0; const PAGE = 1000
+      while (true) {
+        const { data } = await s.from(table).select('*').gte('entry_date', dateFilter).range(f, f + PAGE - 1)
+        if (!data || data.length === 0) break
+        all.push(...data)
+        if (data.length < PAGE) break
+        f += PAGE
+      }
+      return all
+    }
+    const [bank, cash] = await Promise.all([
+      fetchAll('bank_entries', fromStr),
+      fetchAll('cash_entries', fromStr)
     ])
-    const bank = bRes.data||[]; const cash = cRes.data||[]
     setBankRaw(bank)
     setCashRaw(cash)
 

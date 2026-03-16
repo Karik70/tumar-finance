@@ -7,6 +7,27 @@ import Sidebar from '@/components/Sidebar'
 const fmt = (n: number) => n.toLocaleString('ru-RU')
 const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 
+function buildMonthKey(year: number, month: number) {
+  return `${year}-${String(month + 1).padStart(2, '0')}-01`
+}
+
+function monthLabel(key: string) {
+  const d = new Date(key)
+  return `${MONTHS_RU[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+
+function buildMonthOptions() {
+  const now = new Date()
+  const options: { value: string; label: string }[] = []
+  // 12 past months + current + 1 next
+  for (let i = -11; i <= 1; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+    const key = buildMonthKey(d.getFullYear(), d.getMonth())
+    options.push({ value: key, label: monthLabel(key) })
+  }
+  return options.reverse() // newest first
+}
+
 type Client = {
   id: string
   pult_number: string
@@ -29,34 +50,25 @@ type Payment = {
 /** Extract first phone number from Describe field */
 function extractPhone(describe: string | undefined): string | null {
   if (!describe) return null
-  // Look in "Контактные данные" section first
   const contactSection = describe.split(/Контактные данные/i)[1]
   const searchIn = contactSection || describe
-  // Match Kazakh phone formats: 8(7XX) XXX XX XX, 8(7XX)XXX XX XX, +7...
   const m = searchIn.match(/8\s*\(?\s*(7\d{2})\s*\)?\s*(\d{3})\s*(\d{2})\s*(\d{2})/)
   if (m) return `8(${m[1]})${m[2]} ${m[3]} ${m[4]}`
   return null
 }
 
-/** Parse pult monitoring system JSON export.
- *  Handles: plain array, wrapped object ({objects:[...]}, {data:[...]}, etc.), single object */
+/** Parse pult monitoring system JSON export. */
 function parsePultJSON(raw: any): { pult_number: string; name: string; address: string | null; phone: string | null }[] {
   let arr: any[]
-
   if (Array.isArray(raw)) {
     arr = raw
   } else if (raw && typeof raw === 'object') {
-    // Try to find an array in any top-level key
     const arrKey = Object.keys(raw).find(k => Array.isArray(raw[k]) && raw[k].length > 0)
-    if (arrKey) {
-      arr = raw[arrKey]
-    } else {
-      arr = [raw] // single object
-    }
+    if (arrKey) arr = raw[arrKey]
+    else arr = [raw]
   } else {
     return []
   }
-
   return arr
     .filter(obj => obj && obj.N != null && obj.CutName)
     .map(obj => ({
@@ -77,6 +89,8 @@ function normalize(s: string): string {
     .trim()
 }
 
+const MONTH_OPTIONS = buildMonthOptions()
+
 export default function RemotesPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -84,6 +98,7 @@ export default function RemotesPage() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [search, setSearch] = useState('')
   const [filterUnpaid, setFilterUnpaid] = useState(false)
@@ -94,27 +109,45 @@ export default function RemotesPage() {
   const [form, setForm] = useState({ pult_number: '', name: '', address: '', phone: '', monthly_rate: '' })
 
   const now = new Date()
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-  const monthLabel = `${MONTHS_RU[now.getMonth()]} ${now.getFullYear()}`
+  const defaultMonth = buildMonthKey(now.getFullYear(), now.getMonth())
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
 
   useEffect(() => {
     const s = createClient()
     s.auth.getUser().then(({ data }) => {
       if (!data.user) { router.push('/login'); return }
       setUser(data.user)
-      loadAll(s)
+      loadAll(s, selectedMonth)
     })
   }, [])
 
-  async function loadAll(s: any) {
+  useEffect(() => {
+    if (!user) return
+    const s = createClient()
+    loadPayments(s, selectedMonth)
+  }, [selectedMonth])
+
+  async function loadAll(s: any, month: string) {
     setLoading(true)
-    const [cRes, pRes] = await Promise.all([
-      s.from('clients').select('*').eq('is_active', true).order('pult_number'),
-      s.from('pult_payments').select('*').eq('payment_month', currentMonth),
-    ])
-    setClients(cRes.data || [])
-    setPayments(pRes.data || [])
+    // paginate clients (Supabase default limit = 1000)
+    const allClients: Client[] = []
+    let f = 0; const PAGE = 1000
+    while (true) {
+      const { data } = await s.from('clients').select('*').eq('is_active', true).order('pult_number').range(f, f + PAGE - 1)
+      if (!data || data.length === 0) break
+      allClients.push(...data)
+      if (data.length < PAGE) break
+      f += PAGE
+    }
+    const { data: pData } = await s.from('pult_payments').select('*').eq('payment_month', month)
+    setClients(allClients)
+    setPayments(pData || [])
     setLoading(false)
+  }
+
+  async function loadPayments(s: any, month: string) {
+    const { data } = await s.from('pult_payments').select('*').eq('payment_month', month)
+    setPayments(data || [])
   }
 
   function getPayment(clientId: string) {
@@ -141,12 +174,23 @@ export default function RemotesPage() {
     } else {
       const { data, error } = await s
         .from('pult_payments')
-        .insert({ client_id: client.id, payment_month: currentMonth, is_paid: true, payment_date: new Date().toISOString().slice(0, 10) })
+        .insert({ client_id: client.id, payment_month: selectedMonth, is_paid: true, payment_date: new Date().toISOString().slice(0, 10) })
         .select()
         .single()
       if (!error && data) setPayments(prev => [...prev, data])
     }
     setSaving(null)
+  }
+
+  async function deleteClient(client: Client) {
+    if (!window.confirm(`Удалить пульт ${client.pult_number} — ${client.name}?\n\nПульт будет скрыт из списка (данные сохранятся).`)) return
+    setDeleting(client.id)
+    const s = createClient()
+    const { error } = await s.from('clients').update({ is_active: false }).eq('id', client.id)
+    if (!error) {
+      setClients(prev => prev.filter(c => c.id !== client.id))
+    }
+    setDeleting(null)
   }
 
   async function addClient() {
@@ -174,7 +218,6 @@ export default function RemotesPage() {
     setImportStatus('Читаю JSON...')
     try {
       const buf = await file.arrayBuffer()
-      // Try UTF-8 first; if it has replacement chars, fall back to Windows-1251
       let text = new TextDecoder('utf-8').decode(buf)
       if (text.includes('\uFFFD')) {
         text = new TextDecoder('windows-1251').decode(buf)
@@ -202,16 +245,13 @@ export default function RemotesPage() {
           phone: item.phone,
           is_active: true,
         }, { onConflict: 'pult_number' })
-        if (!error) {
-          imported++
-        } else {
-          errors.push(`Пульт ${item.pult_number}: ${error.message}`)
-        }
+        if (!error) imported++
+        else errors.push(`Пульт ${item.pult_number}: ${error.message}`)
       }
 
       const errMsg = errors.length > 0 ? ` | Ошибки: ${errors.slice(0, 3).join('; ')}` : ''
       setImportStatus(`Импортировано: ${imported} из ${parsed.length}${errMsg}`)
-      await loadAll(s)
+      await loadAll(s, selectedMonth)
       setTimeout(() => setImportStatus(null), 5000)
     } catch (err: any) {
       setImportStatus(`Ошибка чтения JSON: ${err.message}`)
@@ -220,23 +260,30 @@ export default function RemotesPage() {
     e.target.value = ''
   }
 
-  /** Auto-reconcile: match bank_entries (category=pulto, type=income) with clients */
+  /** Auto-reconcile: match bank_entries with clients */
   async function reconcileWithBank() {
     setReconciling(true)
     setReconcileStatus('Загружаю выписки за месяц...')
     try {
       const s = createClient()
-      const monthStart = currentMonth
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10)
+      const monthStart = selectedMonth
+      const d = new Date(selectedMonth)
+      const nextMonth = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 1).toISOString().slice(0, 10)
 
-      // Fetch all pulto income for current month
-      const { data: bankEntries } = await s
-        .from('bank_entries')
-        .select('counterparty, amount, description, entry_date')
-        .eq('category', 'pulto')
-        .eq('type', 'income')
-        .gte('entry_date', monthStart)
-        .lt('entry_date', nextMonth)
+      const allBankEntries: any[] = []
+      let bf = 0; const BPAGE = 1000
+      while (true) {
+        const { data: bd } = await s.from('bank_entries')
+          .select('counterparty, amount, description, entry_date')
+          .eq('category', 'pulto').eq('type', 'income')
+          .gte('entry_date', monthStart).lt('entry_date', nextMonth)
+          .range(bf, bf + BPAGE - 1)
+        if (!bd || bd.length === 0) break
+        allBankEntries.push(...bd)
+        if (bd.length < BPAGE) break
+        bf += BPAGE
+      }
+      const bankEntries = allBankEntries
 
       if (!bankEntries || bankEntries.length === 0) {
         setReconcileStatus('Нет записей с категорией "Пультовая" за этот месяц')
@@ -252,21 +299,13 @@ export default function RemotesPage() {
 
       for (const entry of bankEntries) {
         const entryText = normalize((entry.counterparty || '') + ' ' + (entry.description || ''))
-
-        // Try to find a matching client
         for (const client of clients) {
           if (alreadyMatched.has(client.id)) continue
-          if (isPaid(client.id)) continue // already paid
-
+          if (isPaid(client.id)) continue
           const clientName = normalize(client.name)
-          // Split client name into significant words (3+ chars)
           const clientWords = clientName.split(/[\s,."'()]+/).filter(w => w.length >= 3)
-
-          // Check if any significant word from client name appears in bank entry
           const isMatch = clientWords.some(word => entryText.includes(word))
-
           if (isMatch) {
-            // Mark as paid
             const existing = getPayment(client.id)
             if (existing) {
               await s.from('pult_payments')
@@ -276,7 +315,7 @@ export default function RemotesPage() {
               await s.from('pult_payments')
                 .insert({
                   client_id: client.id,
-                  payment_month: currentMonth,
+                  payment_month: selectedMonth,
                   is_paid: true,
                   payment_date: entry.entry_date,
                   notes: `Авто: ${entry.counterparty || ''}`.slice(0, 200),
@@ -284,13 +323,12 @@ export default function RemotesPage() {
             }
             alreadyMatched.add(client.id)
             matched++
-            break // one bank entry per client
+            break
           }
         }
       }
 
-      // Reload data
-      await loadAll(s)
+      await loadAll(s, selectedMonth)
       setReconcileStatus(`Сверка завершена. Совпало: ${matched} из ${bankEntries.length} записей. Не совпало: ${bankEntries.length - matched}`)
       setTimeout(() => setReconcileStatus(null), 8000)
     } catch (err: any) {
@@ -312,6 +350,7 @@ export default function RemotesPage() {
   const totalExpected = clients.reduce((s, c) => s + Number(c.monthly_rate), 0)
   const totalPaid = clients.filter(c => isPaid(c.id)).reduce((s, c) => s + Number(c.monthly_rate), 0)
   const totalDebt = unpaidClients.reduce((s, c) => s + Number(c.monthly_rate), 0)
+  const currentMonthLabel = monthLabel(selectedMonth)
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text2)' }}>
@@ -326,9 +365,25 @@ export default function RemotesPage() {
 
         {/* Header */}
         <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>База пультов</h1>
-            <p style={{ fontSize: 13, color: 'var(--text2)', margin: '4px 0 0' }}>{monthLabel} — учёт оплат</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>База пультов</h1>
+              <p style={{ fontSize: 13, color: 'var(--text2)', margin: '4px 0 0' }}>{currentMonthLabel} — учёт оплат</p>
+            </div>
+            {/* Month selector */}
+            <select
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+              style={{
+                padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border2)',
+                background: 'var(--bg2)', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
+                appearance: 'none', paddingRight: 28,
+              }}
+            >
+              {MONTH_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
@@ -350,7 +405,7 @@ export default function RemotesPage() {
               {reconciling ? '⏳ Сверяю...' : '🔄 Сверить с выпиской'}
             </button>
             <a
-              href="/remotes/print"
+              href={`/remotes/print?month=${selectedMonth}`}
               target="_blank"
               style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', fontSize: 13, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
             >
@@ -450,14 +505,14 @@ export default function RemotesPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr>
-                  {['Пульт №', 'Клиент / Объект', 'Адрес', 'Телефон', 'Сумма/мес', `Оплата — ${monthLabel}`].map(h => (
+                  {['Пульт №', 'Клиент / Объект', 'Адрес', 'Телефон', 'Сумма/мес', `Оплата — ${currentMonthLabel}`, ''].map(h => (
                     <th key={h} style={{ padding: '10px 14px', fontWeight: 500, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', textAlign: 'left', borderBottom: '1px solid var(--border)', color: 'var(--text2)', whiteSpace: 'nowrap', background: 'var(--bg2)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: '28px', textAlign: 'center', color: 'var(--text3)' }}>Нет данных</td></tr>
+                  <tr><td colSpan={7} style={{ padding: '28px', textAlign: 'center', color: 'var(--text3)' }}>Нет данных</td></tr>
                 )}
                 {filtered.map(c => {
                   const paid = isPaid(c.id)
@@ -493,6 +548,23 @@ export default function RemotesPage() {
                           )}
                         </div>
                       </td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                        <button
+                          onClick={() => deleteClient(c)}
+                          disabled={deleting === c.id}
+                          title="Скрыть пульт из списка"
+                          style={{
+                            padding: '5px 10px', borderRadius: 6,
+                            border: '1px solid rgba(248,81,73,.4)',
+                            background: 'var(--red-bg)', color: 'var(--red)', fontSize: 12,
+                            cursor: deleting === c.id ? 'wait' : 'pointer',
+                            opacity: deleting === c.id ? 0.4 : 1,
+                            lineHeight: 1, whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {deleting === c.id ? '...' : '🗑 Удалить'}
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -505,7 +577,9 @@ export default function RemotesPage() {
         <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text3)' }}>
           <strong>Загрузить JSON</strong> — экспорт из системы мониторинга пультов (поля N, CutName, Address, Describe).
           <br />
-          <strong>Сверить с выпиской</strong> — автоматически отметить оплату по банковским записям с категорией «Пультовая» за текущий месяц.
+          <strong>Сверить с выпиской</strong> — автоматически отметить оплату по банковским записям с категорией «Пультовая» за выбранный месяц.
+          <br />
+          <strong>🗑</strong> — скрыть пульт из списка (данные сохраняются).
         </div>
 
       </main>

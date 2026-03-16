@@ -28,8 +28,17 @@ export default function BankEntryPage() {
   },[])
 
   async function load(s:any) {
-    const {data} = await s.from('bank_entries').select('*').order('entry_date',{ascending:false}).limit(50)
-    setEntries(data||[])
+    const all: any[] = []
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data } = await s.from('bank_entries').select('*').order('entry_date',{ascending:false}).range(from, from + PAGE - 1)
+      if (!data || data.length === 0) break
+      all.push(...data)
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    setEntries(all)
   }
 
   async function submit(e:React.FormEvent) {
@@ -82,15 +91,24 @@ export default function BankEntryPage() {
       created_by: user.id
     }))
 
-    const { error } = await s.from('bank_entries').insert(rowsToInsert)
-    if (error) {
-      setMsg('❌ Ошибка сохранения: ' + error.message)
-    } else {
-      setMsg(`✅ Успешно сохранено ${rowsToInsert.length} записей`)
-      setShowPreview(false)
-      setPreviewData([])
-      load(s)
+    const BATCH_SIZE = 200
+    let saved = 0
+    for (let i = 0; i < rowsToInsert.length; i += BATCH_SIZE) {
+      const batch = rowsToInsert.slice(i, i + BATCH_SIZE)
+      const { error } = await s.from('bank_entries').insert(batch)
+      if (error) {
+        setMsg(`❌ Ошибка на записях ${i+1}–${i+batch.length}: ${error.message}`)
+        setUploading(false)
+        return
+      }
+      saved += batch.length
+      setMsg(`Сохранение... ${saved} / ${rowsToInsert.length}`)
     }
+
+    setMsg(`✅ Успешно сохранено ${saved} записей`)
+    setShowPreview(false)
+    setPreviewData([])
+    load(s)
     setUploading(false)
     setTimeout(()=>setMsg(''), 4000)
   }
