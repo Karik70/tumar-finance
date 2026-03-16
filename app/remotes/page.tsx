@@ -332,7 +332,7 @@ export default function RemotesPage() {
             >
               📥 Загрузить JSON
             </button>
-            <input ref={fileRef} type="file" accept=".json,.obj_json" onChange={handleJSONImport} style={{ display: 'none' }} />
+            <input ref={fileRef} type="file" accept=".json,.obj_json,*/*" onChange={handleJSONImport} style={{ display: 'none' }} />
             <button
               onClick={reconcileWithBank}
               disabled={reconciling || clients.length === 0}
