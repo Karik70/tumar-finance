@@ -11,6 +11,7 @@ const NAV = [
   { href:'/entry/snapshot',   icon:'📋', label:'Остатки (ежедневно)' },
   { href:'/analytics',        icon:'📈', label:'Аналитика' },
   { href:'/salary',           icon:'👥', label:'ЗП / Покрытие' },
+  { href:'/remotes',          icon:'📡', label:'База пультов' },
 ]
 
 export default function Sidebar({ userEmail }: { userEmail?: string }) {

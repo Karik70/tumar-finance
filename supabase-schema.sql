@@ -60,6 +60,32 @@ create table if not exists weekly_snapshots (
   created_at timestamptz default now()
 );
 
+-- Clients (security alarm panels / пульты)
+create table if not exists clients (
+  id uuid primary key default gen_random_uuid(),
+  pult_number varchar(50) unique not null,  -- номер пульта
+  name text not null,                        -- имя клиента / объект
+  address text,
+  phone text,
+  monthly_rate numeric(14,2) default 0,      -- ежемесячная плата
+  is_active boolean default true,
+  created_by uuid references users(id),
+  created_at timestamptz default now()
+);
+
+-- Monthly payment records for each pult
+create table if not exists pult_payments (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid references clients(id) on delete cascade,
+  payment_month date not null,               -- first day of month (e.g. 2024-03-01)
+  is_paid boolean default false,
+  payment_date date,
+  notes text,
+  created_by uuid references users(id),
+  created_at timestamptz default now(),
+  unique(client_id, payment_month)
+);
+
 -- RLS policies
 alter table bank_entries enable row level security;
 alter table cash_entries enable row level security;
@@ -71,3 +97,8 @@ create policy "auth_all_bank" on bank_entries for all using (auth.role() = 'auth
 create policy "auth_all_cash" on cash_entries for all using (auth.role() = 'authenticated');
 create policy "auth_all_salary" on salary_plan for all using (auth.role() = 'authenticated');
 create policy "auth_all_snap" on weekly_snapshots for all using (auth.role() = 'authenticated');
+
+alter table clients enable row level security;
+alter table pult_payments enable row level security;
+create policy "auth_all_clients" on clients for all using (auth.role() = 'authenticated');
+create policy "auth_all_pult_payments" on pult_payments for all using (auth.role() = 'authenticated');
