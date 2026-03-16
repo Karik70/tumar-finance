@@ -38,10 +38,27 @@ function extractPhone(describe: string | undefined): string | null {
   return null
 }
 
-/** Parse pult monitoring system JSON export */
-function parsePultJSON(data: any[]): { pult_number: string; name: string; address: string | null; phone: string | null }[] {
-  return data
-    .filter(obj => obj.N != null && obj.CutName)
+/** Parse pult monitoring system JSON export.
+ *  Handles: plain array, wrapped object ({objects:[...]}, {data:[...]}, etc.), single object */
+function parsePultJSON(raw: any): { pult_number: string; name: string; address: string | null; phone: string | null }[] {
+  let arr: any[]
+
+  if (Array.isArray(raw)) {
+    arr = raw
+  } else if (raw && typeof raw === 'object') {
+    // Try to find an array in any top-level key
+    const arrKey = Object.keys(raw).find(k => Array.isArray(raw[k]) && raw[k].length > 0)
+    if (arrKey) {
+      arr = raw[arrKey]
+    } else {
+      arr = [raw] // single object
+    }
+  } else {
+    return []
+  }
+
+  return arr
+    .filter(obj => obj && obj.N != null && obj.CutName)
     .map(obj => ({
       pult_number: String(obj.N),
       name: (obj.CutName || '').trim(),
@@ -158,8 +175,7 @@ export default function RemotesPage() {
     try {
       const text = await file.text()
       const raw = JSON.parse(text)
-      const arr = Array.isArray(raw) ? raw : [raw]
-      const parsed = parsePultJSON(arr)
+      const parsed = parsePultJSON(raw)
 
       if (parsed.length === 0) {
         setImportStatus('Не найдено объектов с полями N и CutName')
@@ -170,7 +186,8 @@ export default function RemotesPage() {
 
       setImportStatus(`Найдено ${parsed.length} пультов. Загружаю...`)
       const s = createClient()
-      let imported = 0, skipped = 0
+      let imported = 0
+      const errors: string[] = []
 
       for (const item of parsed) {
         const { error } = await s.from('clients').upsert({
@@ -180,11 +197,15 @@ export default function RemotesPage() {
           phone: item.phone,
           is_active: true,
         }, { onConflict: 'pult_number' })
-        if (!error) imported++
-        else skipped++
+        if (!error) {
+          imported++
+        } else {
+          errors.push(`Пульт ${item.pult_number}: ${error.message}`)
+        }
       }
 
-      setImportStatus(`Импортировано: ${imported}, пропущено: ${skipped}`)
+      const errMsg = errors.length > 0 ? ` | Ошибки: ${errors.slice(0, 3).join('; ')}` : ''
+      setImportStatus(`Импортировано: ${imported} из ${parsed.length}${errMsg}`)
       await loadAll(s)
       setTimeout(() => setImportStatus(null), 5000)
     } catch (err: any) {
