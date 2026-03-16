@@ -129,12 +129,19 @@ export default function RemotesPage() {
 
   async function loadAll(s: any, month: string) {
     setLoading(true)
-    const [cRes, pRes] = await Promise.all([
-      s.from('clients').select('*').eq('is_active', true).order('pult_number'),
-      s.from('pult_payments').select('*').eq('payment_month', month),
-    ])
-    setClients(cRes.data || [])
-    setPayments(pRes.data || [])
+    // paginate clients (Supabase default limit = 1000)
+    const allClients: Client[] = []
+    let f = 0; const PAGE = 1000
+    while (true) {
+      const { data } = await s.from('clients').select('*').eq('is_active', true).order('pult_number').range(f, f + PAGE - 1)
+      if (!data || data.length === 0) break
+      allClients.push(...data)
+      if (data.length < PAGE) break
+      f += PAGE
+    }
+    const { data: pData } = await s.from('pult_payments').select('*').eq('payment_month', month)
+    setClients(allClients)
+    setPayments(pData || [])
     setLoading(false)
   }
 
@@ -263,13 +270,20 @@ export default function RemotesPage() {
       const d = new Date(selectedMonth)
       const nextMonth = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 1).toISOString().slice(0, 10)
 
-      const { data: bankEntries } = await s
-        .from('bank_entries')
-        .select('counterparty, amount, description, entry_date')
-        .eq('category', 'pulto')
-        .eq('type', 'income')
-        .gte('entry_date', monthStart)
-        .lt('entry_date', nextMonth)
+      const allBankEntries: any[] = []
+      let bf = 0; const BPAGE = 1000
+      while (true) {
+        const { data: bd } = await s.from('bank_entries')
+          .select('counterparty, amount, description, entry_date')
+          .eq('category', 'pulto').eq('type', 'income')
+          .gte('entry_date', monthStart).lt('entry_date', nextMonth)
+          .range(bf, bf + BPAGE - 1)
+        if (!bd || bd.length === 0) break
+        allBankEntries.push(...bd)
+        if (bd.length < BPAGE) break
+        bf += BPAGE
+      }
+      const bankEntries = allBankEntries
 
       if (!bankEntries || bankEntries.length === 0) {
         setReconcileStatus('Нет записей с категорией "Пультовая" за этот месяц')
@@ -538,18 +552,17 @@ export default function RemotesPage() {
                         <button
                           onClick={() => deleteClient(c)}
                           disabled={deleting === c.id}
-                          title="Удалить пульт"
+                          title="Скрыть пульт из списка"
                           style={{
-                            padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border2)',
-                            background: 'transparent', color: 'var(--text3)', fontSize: 12,
+                            padding: '5px 10px', borderRadius: 6,
+                            border: '1px solid rgba(248,81,73,.4)',
+                            background: 'var(--red-bg)', color: 'var(--red)', fontSize: 12,
                             cursor: deleting === c.id ? 'wait' : 'pointer',
-                            opacity: deleting === c.id ? 0.4 : 0.6,
-                            lineHeight: 1,
+                            opacity: deleting === c.id ? 0.4 : 1,
+                            lineHeight: 1, whiteSpace: 'nowrap',
                           }}
-                          onMouseEnter={e => (e.currentTarget.style.opacity = '1', e.currentTarget.style.color = 'var(--red)', e.currentTarget.style.borderColor = 'var(--red)')}
-                          onMouseLeave={e => (e.currentTarget.style.opacity = '0.6', e.currentTarget.style.color = 'var(--text3)', e.currentTarget.style.borderColor = 'var(--border2)')}
                         >
-                          🗑
+                          {deleting === c.id ? '...' : '🗑 Удалить'}
                         </button>
                       </td>
                     </tr>
