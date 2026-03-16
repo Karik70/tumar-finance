@@ -83,10 +83,11 @@ function parsePultJSON(raw: any): { pult_number: string; name: string; address: 
 /** Normalize string for fuzzy matching */
 function normalize(s: string): string {
   return s.toLowerCase()
-    .replace(/[«»""„'`']/g, '')
+    .replace(/[«»""„'`'"]/g, '')
+    .replace(/[-_]/g, ' ')        // ЭЛСНАБ-КЗ = ЭЛСНАБ КЗ = ЭЛСНАБ_КЗ
+    .replace(/тоо\s*/g, '')
+    .replace(/\bип\s+/g, '')
     .replace(/\s+/g, ' ')
-    .replace(/тоо\s+/g, '')
-    .replace(/ип\s+/g, '')
     .trim()
 }
 
@@ -392,12 +393,14 @@ export default function RemotesPage() {
       const d = new Date(selectedMonth)
       const nextMonth = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 1).toISOString().slice(0, 10)
 
+      // Only reconcile Halyk entries — Kaspi entries are always "АО KASPI BANK" (aggregated, no individual names)
       const allBankEntries: any[] = []
       let bf = 0; const BPAGE = 1000
       while (true) {
         const { data: bd } = await s.from('bank_entries')
           .select('counterparty, amount, description, entry_date')
           .eq('category', 'pulto').eq('type', 'income')
+          .neq('bank', 'kaspi')
           .gte('entry_date', monthStart).lt('entry_date', nextMonth)
           .range(bf, bf + BPAGE - 1)
         if (!bd || bd.length === 0) break
@@ -432,16 +435,26 @@ export default function RemotesPage() {
         const rawText = (entry.counterparty || '') + ' ' + (entry.description || '')
         const entryText = normalize(rawText)
         const entryDigits = rawText.replace(/\D/g, '')
-        const descLower = (entry.description || '').toLowerCase()
+        const fullLower = rawText.toLowerCase()
 
         for (const client of clients) {
           if (alreadyMatched.has(client.id)) continue
-          if (isPaid(client.id)) continue
 
-          // Method 1: name word matching (require words ≥5 chars to avoid false positives like "офис","дом")
+          // Method 1: name word matching
+          // Skip generic location words that cause false positives
+          const SKIP_WORDS = new Set(['офис','склад','квартир','магазин','салон','центр','база','кафе','ресторан','аптека','гостин'])
           const clientName = normalize(client.name)
-          const clientWords = clientName.split(/[\s,."'()\/]+/).filter(w => w.length >= 5)
-          const nameMatch = clientWords.length > 0 && clientWords.some(word => entryText.includes(word))
+          const clientWords = clientName.split(/[\s,."'()\/]+/).filter(w => {
+            if (w.length < 4) return false
+            return !Array.from(SKIP_WORDS).some(skip => w.startsWith(skip))
+          })
+          // Also try matching the full normalized counterparty against the full normalized client name
+          const counterpartyNorm = normalize(entry.counterparty || '')
+          const nameMatch = clientWords.length > 0 && (
+            clientWords.some(word => entryText.includes(word)) ||
+            (counterpartyNorm.length >= 4 && clientName.includes(counterpartyNorm)) ||
+            (clientName.length >= 4 && counterpartyNorm.includes(clientName))
+          )
 
           // Method 2: phone number matching
           const clientPhone = normalizePhone(client.phone || '')
@@ -449,8 +462,6 @@ export default function RemotesPage() {
 
           // Method 3: pult number in description OR counterparty
           const pn = client.pult_number
-          const fullText = (entry.counterparty || '') + ' ' + (entry.description || '')
-          const fullLower = fullText.toLowerCase()
           const pultMatch = !!pn && (
             fullLower.includes(`пульт ${pn}`) ||
             fullLower.includes(`пульт №${pn}`) ||
