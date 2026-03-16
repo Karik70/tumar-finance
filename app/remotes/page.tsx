@@ -432,11 +432,10 @@ export default function RemotesPage() {
         const rawText = (entry.counterparty || '') + ' ' + (entry.description || '')
         const entryText = normalize(rawText)
         const entryDigits = rawText.replace(/\D/g, '')
-        const descLower = (entry.description || '').toLowerCase()
+        const fullLower = rawText.toLowerCase()
 
         for (const client of clients) {
           if (alreadyMatched.has(client.id)) continue
-          if (isPaid(client.id)) continue
 
           // Method 1: name word matching (require words ≥5 chars to avoid false positives like "офис","дом")
           const clientName = normalize(client.name)
@@ -449,8 +448,6 @@ export default function RemotesPage() {
 
           // Method 3: pult number in description OR counterparty
           const pn = client.pult_number
-          const fullText = (entry.counterparty || '') + ' ' + (entry.description || '')
-          const fullLower = fullText.toLowerCase()
           const pultMatch = !!pn && (
             fullLower.includes(`пульт ${pn}`) ||
             fullLower.includes(`пульт №${pn}`) ||
