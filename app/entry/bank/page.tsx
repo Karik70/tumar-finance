@@ -82,15 +82,24 @@ export default function BankEntryPage() {
       created_by: user.id
     }))
 
-    const { error } = await s.from('bank_entries').insert(rowsToInsert)
-    if (error) {
-      setMsg('❌ Ошибка сохранения: ' + error.message)
-    } else {
-      setMsg(`✅ Успешно сохранено ${rowsToInsert.length} записей`)
-      setShowPreview(false)
-      setPreviewData([])
-      load(s)
+    const BATCH_SIZE = 200
+    let saved = 0
+    for (let i = 0; i < rowsToInsert.length; i += BATCH_SIZE) {
+      const batch = rowsToInsert.slice(i, i + BATCH_SIZE)
+      const { error } = await s.from('bank_entries').insert(batch)
+      if (error) {
+        setMsg(`❌ Ошибка на записях ${i+1}–${i+batch.length}: ${error.message}`)
+        setUploading(false)
+        return
+      }
+      saved += batch.length
+      setMsg(`Сохранение... ${saved} / ${rowsToInsert.length}`)
     }
+
+    setMsg(`✅ Успешно сохранено ${saved} записей`)
+    setShowPreview(false)
+    setPreviewData([])
+    load(s)
     setUploading(false)
     setTimeout(()=>setMsg(''), 4000)
   }
