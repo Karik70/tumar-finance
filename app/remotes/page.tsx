@@ -173,7 +173,12 @@ export default function RemotesPage() {
     if (!file) return
     setImportStatus('Читаю JSON...')
     try {
-      const text = await file.text()
+      const buf = await file.arrayBuffer()
+      // Try UTF-8 first; if it has replacement chars, fall back to Windows-1251
+      let text = new TextDecoder('utf-8').decode(buf)
+      if (text.includes('\uFFFD')) {
+        text = new TextDecoder('windows-1251').decode(buf)
+      }
       const raw = JSON.parse(text)
       const parsed = parsePultJSON(raw)
 
