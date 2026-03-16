@@ -143,6 +143,24 @@ export default function BankEntryPage() {
     setPreviewData(newData)
   }
 
+  async function clearAllEntries() {
+    const confirmed = window.confirm(
+      `Удалить ВСЕ записи из выписки банка?\n\nЭто действие нельзя отменить.\nВсего записей: ${entries.length}\n\nНапишите "УДАЛИТЬ" для подтверждения.`
+    )
+    if (!confirmed) return
+    const typed = window.prompt('Введите слово УДАЛИТЬ для подтверждения:')
+    if (typed?.trim() !== 'УДАЛИТЬ') { setMsg('Отменено — слово не совпало'); setTimeout(()=>setMsg(''),3000); return }
+    setUploading(true)
+    setMsg('Удаление...')
+    const s = createClient()
+    const { error } = await s.from('bank_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    if (error) { setMsg('❌ Ошибка: ' + error.message); setUploading(false); return }
+    setEntries([])
+    setMsg('✅ Все записи удалены. Теперь можно загрузить PDF заново.')
+    setUploading(false)
+    setTimeout(()=>setMsg(''),6000)
+  }
+
   function exportCSV() {
     const dataToExport = filtered.map(r => ({
       'Дата': r.entry_date,
@@ -189,6 +207,9 @@ export default function BankEntryPage() {
             <button onClick={exportCSV} style={{background:'var(--bg3)',border:'1px solid var(--border2)',color:'var(--text)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               Экспорт CSV
+            </button>
+            <button onClick={clearAllEntries} disabled={uploading||entries.length===0} style={{background:'var(--red-bg)',border:'1px solid rgba(248,81,73,.4)',color:'var(--red)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:500,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6,whiteSpace:'nowrap',opacity:entries.length===0?.4:1}}>
+              🗑 Очистить все
             </button>
           </div>
         </div>
