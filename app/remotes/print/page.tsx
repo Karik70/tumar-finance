@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 
 const fmt = (n: number) => n.toLocaleString('ru-RU')
@@ -15,15 +15,21 @@ type Client = {
   monthly_rate: number
 }
 
-export default function PrintUnpaidPage() {
+function PrintContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [unpaid, setUnpaid] = useState<Client[]>([])
   const [totalClients, setTotalClients] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const now = new Date()
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-  const monthLabel = `${MONTHS_RU[now.getMonth()]} ${now.getFullYear()}`
+  const rawMonth = searchParams.get('month')
+  // Accept YYYY-MM-01 from query param, fallback to current month
+  const currentMonth = rawMonth && /^\d{4}-\d{2}-01$/.test(rawMonth)
+    ? rawMonth
+    : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  const d = new Date(currentMonth)
+  const monthLabel = `${MONTHS_RU[d.getUTCMonth()]} ${d.getUTCFullYear()}`
   const printDate = now.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   useEffect(() => {
@@ -32,7 +38,7 @@ export default function PrintUnpaidPage() {
       if (!data.user) { router.push('/login'); return }
       loadData(s)
     })
-  }, [])
+  }, [currentMonth])
 
   async function loadData(s: any) {
     const [cRes, pRes] = await Promise.all([
@@ -70,7 +76,7 @@ export default function PrintUnpaidPage() {
           ← Назад к базе
         </a>
         <span style={{ fontSize: 13, color: '#6b7280', marginLeft: 8 }}>
-          Не оплатили: {unpaid.length} из {totalClients}
+          Не оплатили: {unpaid.length} из {totalClients} · {monthLabel}
         </span>
       </div>
 
@@ -162,5 +168,13 @@ export default function PrintUnpaidPage() {
         }
       `}</style>
     </div>
+  )
+}
+
+export default function PrintUnpaidPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40, fontFamily: 'Arial, sans-serif' }}>Загрузка...</div>}>
+      <PrintContent />
+    </Suspense>
   )
 }
