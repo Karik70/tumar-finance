@@ -285,8 +285,7 @@ export default function RemotesPage() {
   }
 
   /** Import Excel file with remotes base.
-   * Expected columns (any order, case-insensitive):
-   * Пульт/№/Номер | Имя/Объект/Клиент | Адрес | Телефон | Сумма/Тариф
+   * Supports format: № объекта | Наименование | Адрес | телефон (may contain "Name Phone") | описание
    */
   async function handleExcelImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -313,16 +312,23 @@ export default function RemotesPage() {
         return headerRow.findIndex(h => keywords.some(k => h.includes(k)))
       }
       const colPult = findCol('пульт', '№', 'номер', 'number', 'n')
-      const colName = findCol('имя', 'объект', 'клиент', 'name', 'cutname')
+      const colName = findCol('наименован', 'имя', 'объект', 'клиент', 'name', 'cutname')
       const colAddr = findCol('адрес', 'address')
       const colPhone = findCol('телефон', 'phone', 'тел')
       const colRate = findCol('сумма', 'тариф', 'rate', 'monthly')
 
       if (colPult === -1 || colName === -1) {
-        setImportStatus(`Не найдены колонки "Пульт" и "Имя/Объект". Найдено: ${headerRow.join(', ')}`)
+        setImportStatus(`Не найдены колонки "Пульт/№" и "Наименование". Найдено: ${headerRow.join(', ')}`)
         setTimeout(() => setImportStatus(null), 8000)
         e.target.value = ''
         return
+      }
+
+      // Extract phone number from a field that may contain "Имя Фамилия 8(777)123 45 67"
+      function extractPhoneFromField(raw: string): string | null {
+        const m = raw.match(/[78][\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/)
+        if (m) return m[0].replace(/\s/g, '').replace(/^7/, '8')
+        return raw.trim() || null
       }
 
       const items: { pult_number: string; name: string; address: string | null; phone: string | null; monthly_rate: number | null }[] = []
@@ -332,7 +338,8 @@ export default function RemotesPage() {
         const name = String(row[colName] ?? '').trim()
         if (!pult || !name) continue
         const address = colAddr >= 0 ? String(row[colAddr] ?? '').trim() || null : null
-        const phone = colPhone >= 0 ? String(row[colPhone] ?? '').trim() || null : null
+        const phoneRaw = colPhone >= 0 ? String(row[colPhone] ?? '').trim() : ''
+        const phone = phoneRaw ? extractPhoneFromField(phoneRaw) : null
         const rateRaw = colRate >= 0 ? row[colRate] : null
         const monthly_rate = rateRaw !== null && rateRaw !== '' ? Number(String(rateRaw).replace(/\s/g, '').replace(',', '.')) || null : null
         items.push({ pult_number: pult, name, address, phone, monthly_rate })
