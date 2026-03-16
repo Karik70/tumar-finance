@@ -28,8 +28,17 @@ export default function BankEntryPage() {
   },[])
 
   async function load(s:any) {
-    const {data} = await s.from('bank_entries').select('*').order('entry_date',{ascending:false}).limit(50)
-    setEntries(data||[])
+    const all: any[] = []
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data } = await s.from('bank_entries').select('*').order('entry_date',{ascending:false}).range(from, from + PAGE - 1)
+      if (!data || data.length === 0) break
+      all.push(...data)
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    setEntries(all)
   }
 
   async function submit(e:React.FormEvent) {
