@@ -3,7 +3,6 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
-import Papa from 'papaparse'
 
 const fmt = (n: number) => n.toLocaleString('ru-RU')
 const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
@@ -27,6 +26,40 @@ type Payment = {
   notes: string | null
 }
 
+/** Extract first phone number from Describe field */
+function extractPhone(describe: string | undefined): string | null {
+  if (!describe) return null
+  // Look in "Контактные данные" section first
+  const contactSection = describe.split(/Контактные данные/i)[1]
+  const searchIn = contactSection || describe
+  // Match Kazakh phone formats: 8(7XX) XXX XX XX, 8(7XX)XXX XX XX, +7...
+  const m = searchIn.match(/8\s*\(?\s*(7\d{2})\s*\)?\s*(\d{3})\s*(\d{2})\s*(\d{2})/)
+  if (m) return `8(${m[1]})${m[2]} ${m[3]} ${m[4]}`
+  return null
+}
+
+/** Parse pult monitoring system JSON export */
+function parsePultJSON(data: any[]): { pult_number: string; name: string; address: string | null; phone: string | null }[] {
+  return data
+    .filter(obj => obj.N != null && obj.CutName)
+    .map(obj => ({
+      pult_number: String(obj.N),
+      name: (obj.CutName || '').trim(),
+      address: (obj.Address || '').trim() || null,
+      phone: extractPhone(obj.Describe),
+    }))
+}
+
+/** Normalize string for fuzzy matching */
+function normalize(s: string): string {
+  return s.toLowerCase()
+    .replace(/[«»""„'`']/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/тоо\s+/g, '')
+    .replace(/ип\s+/g, '')
+    .trim()
+}
+
 export default function RemotesPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -39,6 +72,8 @@ export default function RemotesPage() {
   const [filterUnpaid, setFilterUnpaid] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const [importStatus, setImportStatus] = useState<string | null>(null)
+  const [reconcileStatus, setReconcileStatus] = useState<string | null>(null)
+  const [reconciling, setReconciling] = useState(false)
   const [form, setForm] = useState({ pult_number: '', name: '', address: '', phone: '', monthly_rate: '' })
 
   const now = new Date()
@@ -115,37 +150,128 @@ export default function RemotesPage() {
     }
   }
 
-  async function handleCSV(e: React.ChangeEvent<HTMLInputElement>) {
+  /** Import JSON file from pult monitoring system */
+  async function handleJSONImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setImportStatus('Читаю файл...')
-    Papa.parse(file, {
-      header: false,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        const rows = results.data as string[][]
-        const s = createClient()
-        let imported = 0, skipped = 0
-        for (const row of rows) {
-          const [pult_number, name, address, phone, monthly_rate] = row.map(c => (c ?? '').trim())
-          if (!pult_number || !name) { skipped++; continue }
-          const { error } = await s.from('clients').upsert({
-            pult_number,
-            name,
-            address: address || null,
-            phone: phone || null,
-            monthly_rate: parseFloat((monthly_rate || '0').replace(/[^\d.]/g, '')) || 0,
-            is_active: true,
-          }, { onConflict: 'pult_number' })
-          if (!error) imported++
-          else skipped++
-        }
-        setImportStatus(`Импортировано: ${imported}, пропущено: ${skipped}`)
-        await loadAll(s)
+    setImportStatus('Читаю JSON...')
+    try {
+      const text = await file.text()
+      const raw = JSON.parse(text)
+      const arr = Array.isArray(raw) ? raw : [raw]
+      const parsed = parsePultJSON(arr)
+
+      if (parsed.length === 0) {
+        setImportStatus('Не найдено объектов с полями N и CutName')
         setTimeout(() => setImportStatus(null), 5000)
-      },
-    })
+        e.target.value = ''
+        return
+      }
+
+      setImportStatus(`Найдено ${parsed.length} пультов. Загружаю...`)
+      const s = createClient()
+      let imported = 0, skipped = 0
+
+      for (const item of parsed) {
+        const { error } = await s.from('clients').upsert({
+          pult_number: item.pult_number,
+          name: item.name,
+          address: item.address,
+          phone: item.phone,
+          is_active: true,
+        }, { onConflict: 'pult_number' })
+        if (!error) imported++
+        else skipped++
+      }
+
+      setImportStatus(`Импортировано: ${imported}, пропущено: ${skipped}`)
+      await loadAll(s)
+      setTimeout(() => setImportStatus(null), 5000)
+    } catch (err: any) {
+      setImportStatus(`Ошибка чтения JSON: ${err.message}`)
+      setTimeout(() => setImportStatus(null), 5000)
+    }
     e.target.value = ''
+  }
+
+  /** Auto-reconcile: match bank_entries (category=pulto, type=income) with clients */
+  async function reconcileWithBank() {
+    setReconciling(true)
+    setReconcileStatus('Загружаю выписки за месяц...')
+    try {
+      const s = createClient()
+      const monthStart = currentMonth
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10)
+
+      // Fetch all pulto income for current month
+      const { data: bankEntries } = await s
+        .from('bank_entries')
+        .select('counterparty, amount, description, entry_date')
+        .eq('category', 'pulto')
+        .eq('type', 'income')
+        .gte('entry_date', monthStart)
+        .lt('entry_date', nextMonth)
+
+      if (!bankEntries || bankEntries.length === 0) {
+        setReconcileStatus('Нет записей с категорией "Пультовая" за этот месяц')
+        setReconciling(false)
+        setTimeout(() => setReconcileStatus(null), 5000)
+        return
+      }
+
+      setReconcileStatus(`Найдено ${bankEntries.length} записей. Сверяю...`)
+
+      let matched = 0
+      const alreadyMatched = new Set<string>()
+
+      for (const entry of bankEntries) {
+        const entryText = normalize((entry.counterparty || '') + ' ' + (entry.description || ''))
+
+        // Try to find a matching client
+        for (const client of clients) {
+          if (alreadyMatched.has(client.id)) continue
+          if (isPaid(client.id)) continue // already paid
+
+          const clientName = normalize(client.name)
+          // Split client name into significant words (3+ chars)
+          const clientWords = clientName.split(/[\s,."'()]+/).filter(w => w.length >= 3)
+
+          // Check if any significant word from client name appears in bank entry
+          const isMatch = clientWords.some(word => entryText.includes(word))
+
+          if (isMatch) {
+            // Mark as paid
+            const existing = getPayment(client.id)
+            if (existing) {
+              await s.from('pult_payments')
+                .update({ is_paid: true, payment_date: entry.entry_date, notes: `Авто: ${entry.counterparty || ''}`.slice(0, 200) })
+                .eq('id', existing.id)
+            } else {
+              await s.from('pult_payments')
+                .insert({
+                  client_id: client.id,
+                  payment_month: currentMonth,
+                  is_paid: true,
+                  payment_date: entry.entry_date,
+                  notes: `Авто: ${entry.counterparty || ''}`.slice(0, 200),
+                })
+            }
+            alreadyMatched.add(client.id)
+            matched++
+            break // one bank entry per client
+          }
+        }
+      }
+
+      // Reload data
+      await loadAll(s)
+      setReconcileStatus(`Сверка завершена. Совпало: ${matched} из ${bankEntries.length} записей. Не совпало: ${bankEntries.length - matched}`)
+      setTimeout(() => setReconcileStatus(null), 8000)
+    } catch (err: any) {
+      setReconcileStatus(`Ошибка сверки: ${err.message}`)
+      setTimeout(() => setReconcileStatus(null), 5000)
+    }
+    setReconciling(false)
   }
 
   const filtered = clients.filter(c => {
@@ -183,9 +309,20 @@ export default function RemotesPage() {
               onClick={() => fileRef.current?.click()}
               style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}
             >
-              📥 Импорт CSV
+              📥 Загрузить JSON
             </button>
-            <input ref={fileRef} type="file" accept=".csv" onChange={handleCSV} style={{ display: 'none' }} />
+            <input ref={fileRef} type="file" accept=".json" onChange={handleJSONImport} style={{ display: 'none' }} />
+            <button
+              onClick={reconcileWithBank}
+              disabled={reconciling || clients.length === 0}
+              style={{
+                padding: '7px 14px', borderRadius: 8, border: '1px solid var(--blue)',
+                background: 'var(--blue-bg)', color: 'var(--blue)', fontSize: 13,
+                cursor: reconciling ? 'wait' : 'pointer', opacity: reconciling ? 0.6 : 1,
+              }}
+            >
+              {reconciling ? '⏳ Сверяю...' : '🔄 Сверить с выпиской'}
+            </button>
             <a
               href="/remotes/print"
               target="_blank"
@@ -204,8 +341,15 @@ export default function RemotesPage() {
 
         {/* Import status */}
         {importStatus && (
-          <div style={{ background: 'var(--blue-bg)', border: '1px solid rgba(88,166,255,.3)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: 'var(--blue)' }}>
+          <div style={{ background: 'var(--blue-bg)', border: '1px solid rgba(88,166,255,.3)', borderRadius: 8, padding: '10px 16px', marginBottom: 12, fontSize: 13, color: 'var(--blue)' }}>
             {importStatus}
+          </div>
+        )}
+
+        {/* Reconcile status */}
+        {reconcileStatus && (
+          <div style={{ background: 'var(--green-bg)', border: '1px solid rgba(63,185,80,.3)', borderRadius: 8, padding: '10px 16px', marginBottom: 12, fontSize: 13, color: 'var(--green)' }}>
+            {reconcileStatus}
           </div>
         )}
 
@@ -291,6 +435,7 @@ export default function RemotesPage() {
                 )}
                 {filtered.map(c => {
                   const paid = isPaid(c.id)
+                  const payment = getPayment(c.id)
                   return (
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border)', background: paid ? 'transparent' : 'rgba(248,81,73,.04)' }}>
                       <td style={{ padding: '9px 14px', fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap', color: 'var(--blue)' }}>{c.pult_number}</td>
@@ -301,19 +446,26 @@ export default function RemotesPage() {
                         {c.monthly_rate > 0 ? fmt(Number(c.monthly_rate)) + ' ₸' : '—'}
                       </td>
                       <td style={{ padding: '9px 14px' }}>
-                        <button
-                          onClick={() => togglePaid(c)}
-                          disabled={saving === c.id}
-                          style={{
-                            padding: '5px 14px', borderRadius: 6, border: 'none',
-                            background: paid ? 'var(--green-bg)' : 'var(--red-bg)',
-                            color: paid ? 'var(--green)' : 'var(--red)',
-                            fontSize: 12, cursor: saving === c.id ? 'wait' : 'pointer', fontWeight: 500,
-                            opacity: saving === c.id ? 0.5 : 1, whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {saving === c.id ? '...' : paid ? '✓ Оплачено' : '✗ Не оплачено'}
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button
+                            onClick={() => togglePaid(c)}
+                            disabled={saving === c.id}
+                            style={{
+                              padding: '5px 14px', borderRadius: 6, border: 'none',
+                              background: paid ? 'var(--green-bg)' : 'var(--red-bg)',
+                              color: paid ? 'var(--green)' : 'var(--red)',
+                              fontSize: 12, cursor: saving === c.id ? 'wait' : 'pointer', fontWeight: 500,
+                              opacity: saving === c.id ? 0.5 : 1, whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {saving === c.id ? '...' : paid ? '✓ Оплачено' : '✗ Не оплачено'}
+                          </button>
+                          {payment?.notes && (
+                            <span style={{ fontSize: 10, color: 'var(--text3)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={payment.notes}>
+                              {payment.notes}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -323,12 +475,11 @@ export default function RemotesPage() {
           </div>
         </div>
 
-        {/* CSV hint */}
+        {/* Hint */}
         <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text3)' }}>
-          Формат CSV для импорта (без заголовка):&nbsp;
-          <code style={{ background: 'var(--bg2)', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>
-            номер_пульта, имя/объект, адрес, телефон, сумма_в_месяц
-          </code>
+          <strong>Загрузить JSON</strong> — экспорт из системы мониторинга пультов (поля N, CutName, Address, Describe).
+          <br />
+          <strong>Сверить с выпиской</strong> — автоматически отметить оплату по банковским записям с категорией «Пультовая» за текущий месяц.
         </div>
 
       </main>
