@@ -13,6 +13,14 @@ const PIE_COLORS = ['#3fb950','#58a6ff','#d29922','#f85149','#a78bfa','#34d399',
 
 type ViewMode = 'daily' | 'weekly' | 'monthly'
 
+type UnpaidClient = {
+  id: string
+  pult_number: string
+  name: string
+  phone: string | null
+  monthly_rate: number
+}
+
 function getWeekKey(dateStr: string): string {
   const d = new Date(dateStr)
   const jan1 = new Date(d.getFullYear(), 0, 1)
@@ -36,10 +44,12 @@ export default function AnalyticsPage() {
   const [incomePie, setIncomePie] = useState<any[]>([])
   const [expensePie, setExpensePie] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [unpaidClients, setUnpaidClients] = useState<UnpaidClient[]>([])
+  const [totalClients, setTotalClients] = useState(0)
 
   useEffect(()=>{
     const s=createClient()
-    s.auth.getUser().then(({data})=>{if(!data.user){router.push('/login');return};setUser(data.user);load(s,period)})
+    s.auth.getUser().then(({data})=>{if(!data.user){router.push('/login');return};setUser(data.user);load(s,period);loadUnpaid(s)})
   },[])
 
   async function load(s:any,months:number){
@@ -67,6 +77,19 @@ export default function AnalyticsPage() {
     const kas = bank.filter((r:any)=>r.bank==='kaspi'&&r.type==='income').reduce((s:number,r:any)=>s+Number(r.amount),0)
     setBankData([{name:'Нар. банк',value:Math.round(nar)},{name:'Каспи',value:Math.round(kas)}])
     setLoading(false)
+  }
+
+  async function loadUnpaid(s: any) {
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    const [cRes, pRes] = await Promise.all([
+      s.from('clients').select('id,pult_number,name,phone,monthly_rate').eq('is_active', true).order('pult_number'),
+      s.from('pult_payments').select('client_id').eq('payment_month', currentMonth).eq('is_paid', true),
+    ])
+    const allClients: UnpaidClient[] = cRes.data || []
+    const paidIds = new Set((pRes.data || []).map((p: any) => p.client_id))
+    setTotalClients(allClients.length)
+    setUnpaidClients(allClients.filter(c => !paidIds.has(c.id)))
   }
 
   const chartData = useMemo(() => {
@@ -323,7 +346,7 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Profit trend */}
-        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'20px 24px'}}>
+        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'20px 24px',marginBottom:20}}>
           <div style={{fontSize:14,fontWeight:500,marginBottom:16}}>Чистый результат {viewLabels[view]}</div>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData}>
@@ -335,6 +358,62 @@ export default function AnalyticsPage() {
             </LineChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Unpaid clients block */}
+        {totalClients > 0 && (
+          <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+            <div style={{padding:'14px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+              <div>
+                <span style={{fontSize:14,fontWeight:500}}>Пульты — неоплатники этого месяца</span>
+                <span style={{marginLeft:10,fontSize:12,color:'var(--text2)'}}>{unpaidClients.length} из {totalClients} не оплатили</span>
+              </div>
+              <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                {unpaidClients.length>0&&(
+                  <>
+                    <span style={{fontSize:12,color:'var(--red)',fontWeight:600}}>
+                      Долг: {fmt(unpaidClients.reduce((s,c)=>s+Number(c.monthly_rate),0))} ₸
+                    </span>
+                    <a href="/remotes/print" target="_blank" style={{fontSize:12,padding:'4px 12px',borderRadius:6,border:'1px solid var(--red)',background:'var(--red-bg)',color:'var(--red)',textDecoration:'none'}}>
+                      🖨️ Печать
+                    </a>
+                  </>
+                )}
+                <a href="/remotes" style={{fontSize:12,padding:'4px 12px',borderRadius:6,border:'1px solid var(--border2)',background:'transparent',color:'var(--text2)',textDecoration:'none'}}>
+                  Открыть базу →
+                </a>
+              </div>
+            </div>
+            {unpaidClients.length===0?(
+              <div style={{padding:'20px',textAlign:'center',color:'var(--green)',fontSize:13,fontWeight:500}}>
+                ✓ Все {totalClients} клиентов оплатили за текущий месяц
+              </div>
+            ):(
+              <div style={{maxHeight:320,overflowY:'auto',overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                  <thead>
+                    <tr>
+                      {['Пульт №','Клиент / Объект','Телефон','Сумма (₸)'].map(h=>(
+                        <th key={h} style={{padding:'9px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.04em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)',position:'sticky',top:0,background:'var(--bg2)',whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unpaidClients.map((c,i)=>(
+                      <tr key={c.id} style={{borderBottom:'1px solid var(--border)',background:i%2===0?'transparent':'rgba(248,81,73,.03)'}}>
+                        <td style={{padding:'8px 14px',fontWeight:700,fontFamily:'monospace',color:'var(--blue)',whiteSpace:'nowrap'}}>{c.pult_number}</td>
+                        <td style={{padding:'8px 14px',fontWeight:500}}>{c.name}</td>
+                        <td style={{padding:'8px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{c.phone||'—'}</td>
+                        <td style={{padding:'8px 14px',fontVariantNumeric:'tabular-nums',color:'var(--red)',fontWeight:600,whiteSpace:'nowrap'}}>
+                          {c.monthly_rate>0?fmt(Number(c.monthly_rate))+' ₸':'—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   )
