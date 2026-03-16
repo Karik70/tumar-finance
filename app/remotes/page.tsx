@@ -296,20 +296,52 @@ export default function RemotesPage() {
 
       let matched = 0
       const alreadyMatched = new Set<string>()
+      const usedEntryIndices = new Set<number>()
 
-      for (const entry of bankEntries) {
-        const entryText = normalize((entry.counterparty || '') + ' ' + (entry.description || ''))
+      // Helper: normalize phone to last 10 digits
+      function normalizePhone(p: string): string {
+        const digits = p.replace(/\D/g, '')
+        return digits.length >= 10 ? digits.slice(-10) : digits
+      }
+
+      // First pass: name + phone + pult number matching
+      for (let ei = 0; ei < bankEntries.length; ei++) {
+        const entry = bankEntries[ei]
+        const rawText = (entry.counterparty || '') + ' ' + (entry.description || '')
+        const entryText = normalize(rawText)
+        const entryDigits = rawText.replace(/\D/g, '')
+        const descLower = (entry.description || '').toLowerCase()
+
         for (const client of clients) {
           if (alreadyMatched.has(client.id)) continue
           if (isPaid(client.id)) continue
+
+          // Method 1: name word matching
           const clientName = normalize(client.name)
-          const clientWords = clientName.split(/[\s,."'()]+/).filter(w => w.length >= 3)
-          const isMatch = clientWords.some(word => entryText.includes(word))
-          if (isMatch) {
+          const clientWords = clientName.split(/[\s,."'()\/]+/).filter(w => w.length >= 3)
+          const nameMatch = clientWords.some(word => entryText.includes(word))
+
+          // Method 2: phone number matching
+          const clientPhone = normalizePhone(client.phone || '')
+          const phoneMatch = clientPhone.length >= 10 && entryDigits.includes(clientPhone)
+
+          // Method 3: pult number in description
+          const pn = client.pult_number
+          const pultMatch = !!pn && (
+            descLower.includes(`пульт ${pn}`) ||
+            descLower.includes(`пульт №${pn}`) ||
+            descLower.includes(`пульт#${pn}`) ||
+            descLower.includes(`п/${pn}`) ||
+            descLower.includes(`#${pn} `) ||
+            new RegExp(`\\bпульт\\s*№?\\s*0*${pn}\\b`).test(descLower)
+          )
+
+          if (nameMatch || phoneMatch || pultMatch) {
+            const matchMethod = pultMatch ? 'пульт' : phoneMatch ? 'тел' : 'имя'
             const existing = getPayment(client.id)
             if (existing) {
               await s.from('pult_payments')
-                .update({ is_paid: true, payment_date: entry.entry_date, notes: `Авто: ${entry.counterparty || ''}`.slice(0, 200) })
+                .update({ is_paid: true, payment_date: entry.entry_date, notes: `Авто(${matchMethod}): ${entry.counterparty || ''}`.slice(0, 200) })
                 .eq('id', existing.id)
             } else {
               await s.from('pult_payments')
@@ -318,14 +350,56 @@ export default function RemotesPage() {
                   payment_month: selectedMonth,
                   is_paid: true,
                   payment_date: entry.entry_date,
-                  notes: `Авто: ${entry.counterparty || ''}`.slice(0, 200),
+                  notes: `Авто(${matchMethod}): ${entry.counterparty || ''}`.slice(0, 200),
                 })
             }
             alreadyMatched.add(client.id)
+            usedEntryIndices.add(ei)
             matched++
             break
           }
         }
+      }
+
+      // Second pass: amount-based matching for entries not consumed in first pass
+      const unmatchedEntries = bankEntries.filter((_e, i) => !usedEntryIndices.has(i))
+      // Build a map of monthly_rate → clients (only those not yet matched)
+      const rateToClients = new Map<number, Client[]>()
+      for (const client of clients) {
+        if (alreadyMatched.has(client.id)) continue
+        if (isPaid(client.id)) continue
+        if (!client.monthly_rate) continue
+        const r = Number(client.monthly_rate)
+        if (!rateToClients.has(r)) rateToClients.set(r, [])
+        rateToClients.get(r)!.push(client)
+      }
+      // Only use amount matching if exactly one client has that monthly_rate (unambiguous)
+      for (const entry of unmatchedEntries) {
+        const amt = Number(entry.amount)
+        if (!amt) continue
+        const candidates = rateToClients.get(amt)
+        if (!candidates || candidates.length !== 1) continue
+        const client = candidates[0]
+        if (alreadyMatched.has(client.id)) continue
+        if (isPaid(client.id)) continue
+        const existing = getPayment(client.id)
+        if (existing) {
+          await s.from('pult_payments')
+            .update({ is_paid: true, payment_date: entry.entry_date, notes: `Авто(сумма): ${entry.counterparty || ''}`.slice(0, 200) })
+            .eq('id', existing.id)
+        } else {
+          await s.from('pult_payments')
+            .insert({
+              client_id: client.id,
+              payment_month: selectedMonth,
+              is_paid: true,
+              payment_date: entry.entry_date,
+              notes: `Авто(сумма): ${entry.counterparty || ''}`.slice(0, 200),
+            })
+        }
+        alreadyMatched.add(client.id)
+        rateToClients.delete(amt) // remove to avoid re-use
+        matched++
       }
 
       await loadAll(s, selectedMonth)
