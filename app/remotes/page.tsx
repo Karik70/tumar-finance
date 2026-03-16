@@ -111,6 +111,7 @@ export default function RemotesPage() {
   const now = new Date()
   const defaultMonth = buildMonthKey(now.getFullYear(), now.getMonth())
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
+  const [bankTotal, setBankTotal] = useState(0)
 
   useEffect(() => {
     const s = createClient()
@@ -127,6 +128,25 @@ export default function RemotesPage() {
     loadPayments(s, selectedMonth)
   }, [selectedMonth])
 
+  async function loadBankTotal(s: any, month: string) {
+    const d = new Date(month)
+    const nextMonth = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 1).toISOString().slice(0, 10)
+    let total = 0
+    let bf = 0; const BPAGE = 1000
+    while (true) {
+      const { data: bd } = await s.from('bank_entries')
+        .select('amount')
+        .eq('category', 'pulto').eq('type', 'income')
+        .gte('entry_date', month).lt('entry_date', nextMonth)
+        .range(bf, bf + BPAGE - 1)
+      if (!bd || bd.length === 0) break
+      total += bd.reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
+      if (bd.length < BPAGE) break
+      bf += BPAGE
+    }
+    setBankTotal(total)
+  }
+
   async function loadAll(s: any, month: string) {
     setLoading(true)
     // paginate clients (Supabase default limit = 1000)
@@ -142,12 +162,14 @@ export default function RemotesPage() {
     const { data: pData } = await s.from('pult_payments').select('*').eq('payment_month', month)
     setClients(allClients)
     setPayments(pData || [])
+    await loadBankTotal(s, month)
     setLoading(false)
   }
 
   async function loadPayments(s: any, month: string) {
     const { data } = await s.from('pult_payments').select('*').eq('payment_month', month)
     setPayments(data || [])
+    await loadBankTotal(s, month)
   }
 
   function getPayment(clientId: string) {
@@ -316,24 +338,27 @@ export default function RemotesPage() {
           if (alreadyMatched.has(client.id)) continue
           if (isPaid(client.id)) continue
 
-          // Method 1: name word matching
+          // Method 1: name word matching (require words ≥5 chars to avoid false positives like "офис","дом")
           const clientName = normalize(client.name)
-          const clientWords = clientName.split(/[\s,."'()\/]+/).filter(w => w.length >= 3)
-          const nameMatch = clientWords.some(word => entryText.includes(word))
+          const clientWords = clientName.split(/[\s,."'()\/]+/).filter(w => w.length >= 5)
+          const nameMatch = clientWords.length > 0 && clientWords.some(word => entryText.includes(word))
 
           // Method 2: phone number matching
           const clientPhone = normalizePhone(client.phone || '')
           const phoneMatch = clientPhone.length >= 10 && entryDigits.includes(clientPhone)
 
-          // Method 3: pult number in description
+          // Method 3: pult number in description OR counterparty
           const pn = client.pult_number
+          const fullText = (entry.counterparty || '') + ' ' + (entry.description || '')
+          const fullLower = fullText.toLowerCase()
           const pultMatch = !!pn && (
-            descLower.includes(`пульт ${pn}`) ||
-            descLower.includes(`пульт №${pn}`) ||
-            descLower.includes(`пульт#${pn}`) ||
-            descLower.includes(`п/${pn}`) ||
-            descLower.includes(`#${pn} `) ||
-            new RegExp(`\\bпульт\\s*№?\\s*0*${pn}\\b`).test(descLower)
+            fullLower.includes(`пульт ${pn}`) ||
+            fullLower.includes(`пульт №${pn}`) ||
+            fullLower.includes(`пульт#${pn}`) ||
+            fullLower.includes(`п/${pn}`) ||
+            fullLower.includes(`#${pn} `) ||
+            fullLower.includes(`#${pn}\t`) ||
+            new RegExp(`\\bпульт\\s*№?\\s*0*${pn}\\b`).test(fullLower)
           )
 
           if (nameMatch || phoneMatch || pultMatch) {
@@ -422,8 +447,10 @@ export default function RemotesPage() {
   const unpaidClients = clients.filter(c => !isPaid(c.id))
   const unpaidCount = unpaidClients.length
   const totalExpected = clients.reduce((s, c) => s + Number(c.monthly_rate), 0)
-  const totalPaid = clients.filter(c => isPaid(c.id)).reduce((s, c) => s + Number(c.monthly_rate), 0)
-  const totalDebt = unpaidClients.reduce((s, c) => s + Number(c.monthly_rate), 0)
+  // totalPaid and totalDebt use bank total if monthly_rate is not set
+  const monthlyRateSum = clients.filter(c => isPaid(c.id)).reduce((s, c) => s + Number(c.monthly_rate), 0)
+  const totalPaid = monthlyRateSum > 0 ? monthlyRateSum : bankTotal
+  const totalDebt = totalExpected > 0 ? (totalExpected - totalPaid) : 0
   const currentMonthLabel = monthLabel(selectedMonth)
 
   if (loading) return (
@@ -514,9 +541,9 @@ export default function RemotesPage() {
             { l: 'Всего пультов', v: String(clients.length), c: 'var(--blue)', b: 'var(--blue-bg)', br: 'rgba(88,166,255,.25)' },
             { l: 'Оплатили', v: String(clients.length - unpaidCount), c: 'var(--green)', b: 'var(--green-bg)', br: 'rgba(63,185,80,.25)' },
             { l: 'Не оплатили', v: String(unpaidCount), c: 'var(--red)', b: 'var(--red-bg)', br: 'rgba(248,81,73,.25)' },
-            { l: 'Поступило', v: fmt(totalPaid) + ' ₸', c: 'var(--green)', b: 'var(--green-bg)', br: 'rgba(63,185,80,.25)' },
-            { l: 'Долг', v: fmt(totalDebt) + ' ₸', c: 'var(--red)', b: 'var(--red-bg)', br: 'rgba(248,81,73,.25)' },
-            { l: 'Ожидается итого', v: fmt(totalExpected) + ' ₸', c: 'var(--text)', b: 'var(--bg2)', br: 'var(--border)' },
+            { l: 'Поступило (банк)', v: fmt(bankTotal) + ' ₸', c: 'var(--green)', b: 'var(--green-bg)', br: 'rgba(63,185,80,.25)' },
+            { l: 'Долг', v: totalExpected > 0 ? fmt(totalDebt) + ' ₸' : '—', c: 'var(--red)', b: 'var(--red-bg)', br: 'rgba(248,81,73,.25)' },
+            { l: 'Ожидается итого', v: totalExpected > 0 ? fmt(totalExpected) + ' ₸' : '—', c: 'var(--text)', b: 'var(--bg2)', br: 'var(--border)' },
           ].map(({ l, v, c, b, br }) => (
             <div key={l} style={{ background: b, border: `1px solid ${br}`, borderRadius: 12, padding: '14px 18px' }}>
               <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{l}</div>
