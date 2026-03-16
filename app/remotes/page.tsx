@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 
@@ -103,6 +104,7 @@ export default function RemotesPage() {
   const [search, setSearch] = useState('')
   const [filterUnpaid, setFilterUnpaid] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const excelRef = useRef<HTMLInputElement>(null)
   const [importStatus, setImportStatus] = useState<string | null>(null)
   const [reconcileStatus, setReconcileStatus] = useState<string | null>(null)
   const [reconciling, setReconciling] = useState(false)
@@ -277,6 +279,104 @@ export default function RemotesPage() {
       setTimeout(() => setImportStatus(null), 5000)
     } catch (err: any) {
       setImportStatus(`Ошибка чтения JSON: ${err.message}`)
+      setTimeout(() => setImportStatus(null), 5000)
+    }
+    e.target.value = ''
+  }
+
+  /** Import Excel file with remotes base.
+   * Supports format: № объекта | Наименование | Адрес | телефон (may contain "Name Phone") | описание
+   */
+  async function handleExcelImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportStatus('Читаю Excel...')
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+
+      if (rows.length < 2) {
+        setImportStatus('Файл пустой или нет данных')
+        setTimeout(() => setImportStatus(null), 4000)
+        e.target.value = ''
+        return
+      }
+
+      // Detect header row (first row with text cells)
+      const headerRow = rows[0].map((v: any) => String(v).toLowerCase().trim())
+
+      // Map column indices
+      function findCol(...keywords: string[]): number {
+        return headerRow.findIndex(h => keywords.some(k => h.includes(k)))
+      }
+      const colPult = findCol('пульт', '№', 'номер', 'number', 'n')
+      const colName = findCol('наименован', 'имя', 'объект', 'клиент', 'name', 'cutname')
+      const colAddr = findCol('адрес', 'address')
+      const colPhone = findCol('телефон', 'phone', 'тел')
+      const colRate = findCol('сумма', 'тариф', 'rate', 'monthly')
+
+      if (colPult === -1 || colName === -1) {
+        setImportStatus(`Не найдены колонки "Пульт/№" и "Наименование". Найдено: ${headerRow.join(', ')}`)
+        setTimeout(() => setImportStatus(null), 8000)
+        e.target.value = ''
+        return
+      }
+
+      // Extract phone number from a field that may contain "Имя Фамилия 8(777)123 45 67"
+      function extractPhoneFromField(raw: string): string | null {
+        const m = raw.match(/[78][\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/)
+        if (m) return m[0].replace(/\s/g, '').replace(/^7/, '8')
+        return raw.trim() || null
+      }
+
+      const items: { pult_number: string; name: string; address: string | null; phone: string | null; monthly_rate: number | null }[] = []
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i]
+        const pult = String(row[colPult] ?? '').trim()
+        const name = String(row[colName] ?? '').trim()
+        if (!pult || !name) continue
+        const address = colAddr >= 0 ? String(row[colAddr] ?? '').trim() || null : null
+        const phoneRaw = colPhone >= 0 ? String(row[colPhone] ?? '').trim() : ''
+        const phone = phoneRaw ? extractPhoneFromField(phoneRaw) : null
+        const rateRaw = colRate >= 0 ? row[colRate] : null
+        const monthly_rate = rateRaw !== null && rateRaw !== '' ? Number(String(rateRaw).replace(/\s/g, '').replace(',', '.')) || null : null
+        items.push({ pult_number: pult, name, address, phone, monthly_rate })
+      }
+
+      if (items.length === 0) {
+        setImportStatus('Нет строк с данными после заголовка')
+        setTimeout(() => setImportStatus(null), 4000)
+        e.target.value = ''
+        return
+      }
+
+      setImportStatus(`Найдено ${items.length} пультов. Загружаю...`)
+      const s = createClient()
+      let imported = 0
+      const errors: string[] = []
+
+      for (const item of items) {
+        const upsertData: any = {
+          pult_number: item.pult_number,
+          name: item.name,
+          address: item.address,
+          phone: item.phone,
+          is_active: true,
+        }
+        if (item.monthly_rate !== null) upsertData.monthly_rate = item.monthly_rate
+        const { error } = await s.from('clients').upsert(upsertData, { onConflict: 'pult_number' })
+        if (!error) imported++
+        else errors.push(`Пульт ${item.pult_number}: ${error.message}`)
+      }
+
+      const errMsg = errors.length > 0 ? ` | Ошибки: ${errors.slice(0, 3).join('; ')}` : ''
+      setImportStatus(`Импортировано: ${imported} из ${items.length}${errMsg}`)
+      await loadAll(s, selectedMonth)
+      setTimeout(() => setImportStatus(null), 5000)
+    } catch (err: any) {
+      setImportStatus(`Ошибка чтения Excel: ${err.message}`)
       setTimeout(() => setImportStatus(null), 5000)
     }
     e.target.value = ''
@@ -495,6 +595,13 @@ export default function RemotesPage() {
             </button>
             <input ref={fileRef} type="file" accept=".json,.obj_json,*/*" onChange={handleJSONImport} style={{ display: 'none' }} />
             <button
+              onClick={() => excelRef.current?.click()}
+              style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}
+            >
+              📊 Загрузить Excel
+            </button>
+            <input ref={excelRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelImport} style={{ display: 'none' }} />
+            <button
               onClick={reconcileWithBank}
               disabled={reconciling || clients.length === 0}
               style={{
@@ -677,6 +784,8 @@ export default function RemotesPage() {
         {/* Hint */}
         <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text3)' }}>
           <strong>Загрузить JSON</strong> — экспорт из системы мониторинга пультов (поля N, CutName, Address, Describe).
+          <br />
+          <strong>Загрузить Excel</strong> — файл .xlsx/.xls с колонками: Пульт №, Имя/Объект, Адрес, Телефон, Сумма/мес.
           <br />
           <strong>Сверить с выпиской</strong> — автоматически отметить оплату по банковским записям с категорией «Пультовая» за выбранный месяц.
           <br />
