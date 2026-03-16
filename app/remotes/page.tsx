@@ -312,8 +312,8 @@ export default function RemotesPage() {
       function findCol(...keywords: string[]): number {
         return headerRow.findIndex(h => keywords.some(k => h.includes(k)))
       }
-      const colPult = findCol('пульт', '№', 'номер', 'number', 'n')
-      const colName = findCol('наименован', 'имя', 'объект', 'клиент', 'name', 'cutname')
+      const colPult = findCol('пульт', 'номер', '№', 'number')
+      const colName = findCol('краткое', 'наименован', 'имя', 'объект', 'клиент', 'name', 'cutname')
       const colAddr = findCol('адрес', 'address')
       const colPhone = findCol('телефон', 'phone', 'тел')
       const colRate = findCol('сумма', 'тариф', 'rate', 'monthly')
