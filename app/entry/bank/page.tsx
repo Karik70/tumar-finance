@@ -91,10 +91,33 @@ export default function BankEntryPage() {
       created_by: user.id
     }))
 
+    // deduplicate: load existing records for the same date range
+    const dates = rowsToInsert.map(r => r.entry_date).sort()
+    const minDate = dates[0], maxDate = dates[dates.length - 1]
+    const { data: existing } = await s.from('bank_entries')
+      .select('entry_date,bank,amount,counterparty')
+      .gte('entry_date', minDate).lte('entry_date', maxDate)
+    const existingSet = new Set(
+      (existing || []).map((r: any) => `${r.entry_date}|${r.bank}|${r.amount}|${r.counterparty||''}`)
+    )
+    const newRows = rowsToInsert.filter(r =>
+      !existingSet.has(`${r.entry_date}|${r.bank}|${r.amount}|${r.counterparty||''}`)
+    )
+    const skipped = rowsToInsert.length - newRows.length
+
+    if (newRows.length === 0) {
+      setMsg(`⚠️ Все ${rowsToInsert.length} записей уже есть в базе, дубли не добавлены`)
+      setUploading(false)
+      setShowPreview(false)
+      setPreviewData([])
+      setTimeout(() => setMsg(''), 5000)
+      return
+    }
+
     const BATCH_SIZE = 200
     let saved = 0
-    for (let i = 0; i < rowsToInsert.length; i += BATCH_SIZE) {
-      const batch = rowsToInsert.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
+      const batch = newRows.slice(i, i + BATCH_SIZE)
       const { error } = await s.from('bank_entries').insert(batch)
       if (error) {
         setMsg(`❌ Ошибка на записях ${i+1}–${i+batch.length}: ${error.message}`)
@@ -102,10 +125,11 @@ export default function BankEntryPage() {
         return
       }
       saved += batch.length
-      setMsg(`Сохранение... ${saved} / ${rowsToInsert.length}`)
+      setMsg(`Сохранение... ${saved} / ${newRows.length}`)
     }
 
-    setMsg(`✅ Успешно сохранено ${saved} записей`)
+    const skipMsg = skipped > 0 ? `, пропущено дублей: ${skipped}` : ''
+    setMsg(`✅ Сохранено ${saved} новых записей${skipMsg}`)
     setShowPreview(false)
     setPreviewData([])
     load(s)
