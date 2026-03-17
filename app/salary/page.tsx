@@ -13,6 +13,8 @@ export default function SalaryPage() {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({ month: new Date().toISOString().slice(0,7)+'-01', total_planned:'', bank_part:'', cash_part:'', notes:'' })
   const [msg, setMsg] = useState('')
+  const [editId, setEditId] = useState<string|null>(null)
+  const [editForm, setEditForm] = useState<any>(null)
   const [snaps, setSnaps] = useState<any[]>([])
   const [bankIncome, setBankIncome] = useState(0)
 
@@ -43,6 +45,20 @@ export default function SalaryPage() {
     setForm(f=>({...f,total_planned:'',bank_part:'',cash_part:'',notes:''}))
     load(s);setLoading(false)
     setTimeout(()=>setMsg(''),3000)
+  }
+
+  async function saveEdit(){
+    if(!editId||!editForm) return
+    setLoading(true)
+    const s=createClient()
+    const {error}=await s.from('salary_plan').update({
+      total_planned:parseFloat(editForm.total_planned),
+      bank_part:parseFloat(editForm.bank_part)||null,
+      cash_part:parseFloat(editForm.cash_part)||null,
+      notes:editForm.notes||null
+    }).eq('id',editId)
+    if(error){setMsg('Ошибка: '+error.message)}else{setMsg('✅ Сохранено');setEditId(null);setEditForm(null);load(s)}
+    setLoading(false);setTimeout(()=>setMsg(''),3000)
   }
 
   const snap=snaps[0]
@@ -136,22 +152,44 @@ export default function SalaryPage() {
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:650}}>
               <thead>
-                <tr>{['Месяц','Общий ФОТ','Банк','Наличные','Налоги (≈12%)','Заметки'].map(h=>(
+                <tr>{['Месяц','Общий ФОТ','Банк','Наличные','Налоги (≈12%)','Заметки',''].map(h=>(
                   <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
-                {plans.length===0&&<tr><td colSpan={6} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет данных</td></tr>}
-                {plans.map((r,i)=>(
-                  <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
+                {plans.length===0&&<tr><td colSpan={7} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет данных</td></tr>}
+                {plans.map((r,i)=>{
+                  const isEdit=editId===r.id
+                  return (
+                  <tr key={i} style={{borderBottom:'1px solid var(--border)',background:isEdit?'var(--amber-bg)':'transparent'}}>
                     <td style={{padding:'9px 14px',fontWeight:500,whiteSpace:'nowrap'}}>{new Date(r.month).toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</td>
-                    <td style={{padding:'9px 14px',fontWeight:600,color:'var(--amber)',whiteSpace:'nowrap'}}>{fmt(Number(r.total_planned))} ₸</td>
-                    <td style={{padding:'9px 14px',color:'var(--blue)',whiteSpace:'nowrap'}}>{r.bank_part?fmt(Number(r.bank_part))+' ₸':'—'}</td>
-                    <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.cash_part?fmt(Number(r.cash_part))+' ₸':'—'}</td>
-                    <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{fmt(Math.round(Number(r.total_planned)*0.12))} ₸</td>
-                    <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)'}}>{r.notes||'—'}</td>
+                    {isEdit?(
+                      <>
+                        <td style={{padding:'6px 8px'}}><input type="number" value={editForm.total_planned} onChange={e=>setEditForm((f:any)=>({...f,total_planned:e.target.value}))} style={{width:100,padding:'4px 7px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',fontSize:13}} /></td>
+                        <td style={{padding:'6px 8px'}}><input type="number" value={editForm.bank_part} onChange={e=>setEditForm((f:any)=>({...f,bank_part:e.target.value}))} style={{width:90,padding:'4px 7px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',fontSize:13}} /></td>
+                        <td style={{padding:'6px 8px'}}><input type="number" value={editForm.cash_part} onChange={e=>setEditForm((f:any)=>({...f,cash_part:e.target.value}))} style={{width:90,padding:'4px 7px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',fontSize:13}} /></td>
+                        <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{fmt(Math.round(Number(editForm.total_planned||0)*0.12))} ₸</td>
+                        <td style={{padding:'6px 8px'}}><input value={editForm.notes} onChange={e=>setEditForm((f:any)=>({...f,notes:e.target.value}))} style={{width:140,padding:'4px 7px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',fontSize:13}} /></td>
+                        <td style={{padding:'6px 8px',whiteSpace:'nowrap'}}>
+                          <button onClick={saveEdit} disabled={loading} style={{padding:'4px 10px',borderRadius:5,border:'none',background:'var(--blue)',color:'#fff',fontSize:12,cursor:'pointer',marginRight:4}}>Сохранить</button>
+                          <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{padding:'4px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text2)',fontSize:12,cursor:'pointer'}}>✕</button>
+                        </td>
+                      </>
+                    ):(
+                      <>
+                        <td style={{padding:'9px 14px',fontWeight:600,color:'var(--amber)',whiteSpace:'nowrap'}}>{fmt(Number(r.total_planned))} ₸</td>
+                        <td style={{padding:'9px 14px',color:'var(--blue)',whiteSpace:'nowrap'}}>{r.bank_part?fmt(Number(r.bank_part))+' ₸':'—'}</td>
+                        <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.cash_part?fmt(Number(r.cash_part))+' ₸':'—'}</td>
+                        <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{fmt(Math.round(Number(r.total_planned)*0.12))} ₸</td>
+                        <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)'}}>{r.notes||'—'}</td>
+                        <td style={{padding:'9px 14px'}}>
+                          <button onClick={()=>{setEditId(r.id);setEditForm({total_planned:String(r.total_planned),bank_part:String(r.bank_part||''),cash_part:String(r.cash_part||''),notes:r.notes||''})}} style={{padding:'4px 10px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text2)',fontSize:12,cursor:'pointer'}}>✏️ Ред.</button>
+                        </td>
+                      </>
+                    )}
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

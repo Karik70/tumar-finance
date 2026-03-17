@@ -39,6 +39,13 @@ export default function CashEntryPage() {
 
   const totalExp=entries.filter(r=>r.type==='expense').reduce((s,r)=>s+Number(r.amount),0)
   const totalIn=entries.filter(r=>r.type==='income').reduce((s,r)=>s+Number(r.amount),0)
+  const balance=totalIn-totalExp
+
+  // running balance per row (oldest→newest then reversed for display desc)
+  const withBalance=entries.map((r,i)=>{
+    const runTotal=entries.slice(i).reduce((acc,e)=>acc+(e.type==='income'?Number(e.amount):-Number(e.amount)),0)
+    return {...r, running: runTotal}
+  })
 
   return (
     <div className="app-layout" style={{display:'flex',minHeight:'100vh'}}>
@@ -92,22 +99,23 @@ export default function CashEntryPage() {
           </form>
         </div>
 
-        <div className="totals-row" style={{display:'flex',gap:12,marginBottom:16}}>
+        <div className="totals-row" style={{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}}>
           <div style={{background:'var(--green-bg)',border:'1px solid rgba(63,185,80,.25)',borderRadius:8,padding:'8px 16px',fontSize:13}}>Приход нал: <strong style={{color:'var(--green)'}}>{fmt(totalIn)} ₸</strong></div>
           <div style={{background:'var(--red-bg)',border:'1px solid rgba(248,81,73,.25)',borderRadius:8,padding:'8px 16px',fontSize:13}}>Расход нал: <strong style={{color:'var(--red)'}}>{fmt(totalExp)} ₸</strong></div>
+          <div style={{background:balance>=0?'var(--blue-bg)':'var(--red-bg)',border:`1px solid ${balance>=0?'rgba(88,166,255,.25)':'rgba(248,81,73,.25)'}`,borderRadius:8,padding:'8px 16px',fontSize:13}}>Остаток нал: <strong style={{color:balance>=0?'var(--blue)':'var(--red)'}}>{fmt(balance)} ₸</strong></div>
         </div>
 
         <div className="table-wrap" style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}>
               <thead>
-                <tr>{['Дата','Тип','Категория','Ответственный','Комментарий','Сумма'].map(h=>(
+                <tr>{['Дата','Тип','Категория','Ответственный','Комментарий','Сумма','Остаток'].map(h=>(
                   <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
-                {entries.length===0&&<tr><td colSpan={6} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
-                {entries.map((r,i)=>(
+                {withBalance.length===0&&<tr><td colSpan={7} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
+                {withBalance.map((r,i)=>(
                   <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
                     <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.entry_date}</td>
                     <td style={{padding:'9px 14px'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:r.type==='income'?'var(--green-bg)':'var(--red-bg)',color:r.type==='income'?'var(--green)':'var(--red)'}}>{r.type==='income'?'Приход':'Расход'}</span></td>
@@ -115,6 +123,7 @@ export default function CashEntryPage() {
                     <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)',whiteSpace:'nowrap'}}>{RESP.find(c=>c.v===r.responsible)?.l||r.responsible}</td>
                     <td style={{padding:'9px 14px',maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--text2)'}}>{r.description||'—'}</td>
                     <td style={{padding:'9px 14px',fontWeight:600,color:r.type==='income'?'var(--green)':'var(--red)',whiteSpace:'nowrap'}}>{r.type==='income'?'+':'-'}{fmt(Number(r.amount))} ₸</td>
+                    <td style={{padding:'9px 14px',fontWeight:600,color:r.running>=0?'var(--blue)':'var(--red)',whiteSpace:'nowrap'}}>{fmt(r.running)} ₸</td>
                   </tr>
                 ))}
               </tbody>

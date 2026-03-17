@@ -163,6 +163,7 @@ export default function RemotesPage() {
       f += PAGE
     }
     const { data: pData } = await s.from('pult_payments').select('*').eq('payment_month', month)
+    allClients.sort((a, b) => a.pult_number.localeCompare(b.pult_number, undefined, { numeric: true }))
     setClients(allClients)
     setPayments(pData || [])
     await loadBankTotal(s, month)
