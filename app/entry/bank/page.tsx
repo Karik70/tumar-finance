@@ -143,6 +143,14 @@ export default function BankEntryPage() {
     setPreviewData(newData)
   }
 
+  async function deleteEntry(id: string) {
+    if (!window.confirm('Удалить эту запись?')) return
+    const s = createClient()
+    const { error } = await s.from('bank_entries').delete().eq('id', id)
+    if (error) { setMsg('❌ Ошибка: ' + error.message); return }
+    setEntries(prev => prev.filter(r => r.id !== id))
+  }
+
   async function clearAllEntries() {
     const confirmed = window.confirm(
       `Удалить ВСЕ записи из выписки банка?\n\nЭто действие нельзя отменить.\nВсего записей: ${entries.length}\n\nНапишите "УДАЛИТЬ" для подтверждения.`
@@ -375,13 +383,13 @@ export default function BankEntryPage() {
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:700}}>
               <thead>
                 <tr style={{color:'var(--text2)'}}>
-                  {['Дата','Банк','Тип','Описание','Контрагент','Категория','Сумма'].map(h=>(
+                  {['Дата','Банк','Тип','Описание','Контрагент','Категория','Сумма',''].map(h=>(
                     <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',textAlign:'left',borderBottom:'1px solid var(--border)'}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.length===0&&<tr><td colSpan={7} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
+                {filtered.length===0&&<tr><td colSpan={8} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
                 {filtered.map((r,i)=>(
                   <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
                     <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.entry_date}</td>
@@ -392,6 +400,9 @@ export default function BankEntryPage() {
                     <td style={{padding:'9px 14px',fontSize:11,color:'var(--text2)',whiteSpace:'nowrap'}}>{CAT_LABELS[r.category]||r.category}</td>
                     <td style={{padding:'9px 14px',fontWeight:600,color:r.type==='income'?'var(--green)':'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>
                       {r.type==='income'?'+':'-'}{fmt(Number(r.amount))} ₸
+                    </td>
+                    <td style={{padding:'9px 8px'}}>
+                      <button onClick={()=>deleteEntry(r.id)} title="Удалить" style={{background:'transparent',border:'1px solid rgba(248,81,73,.3)',borderRadius:5,color:'var(--red)',cursor:'pointer',fontSize:12,padding:'3px 8px',lineHeight:1}}>✕</button>
                     </td>
                   </tr>
                 ))}
