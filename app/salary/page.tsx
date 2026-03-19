@@ -47,6 +47,15 @@ export default function SalaryPage() {
     setTimeout(()=>setMsg(''),3000)
   }
 
+  async function deletePlan(id: string) {
+    if (!window.confirm('Удалить этот план ФОТ?')) return
+    setLoading(true)
+    const s = createClient()
+    const { error } = await s.from('salary_plan').delete().eq('id', id)
+    if (error) { setMsg('Ошибка: ' + error.message) } else { setMsg('Удалено'); load(s) }
+    setLoading(false); setTimeout(() => setMsg(''), 3000)
+  }
+
   async function saveEdit(){
     if(!editId||!editForm) return
     setLoading(true)
@@ -182,8 +191,9 @@ export default function SalaryPage() {
                         <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{r.cash_part?fmt(Number(r.cash_part))+' ₸':'—'}</td>
                         <td style={{padding:'9px 14px',color:'var(--text2)',whiteSpace:'nowrap'}}>{fmt(Math.round(Number(r.total_planned)*0.12))} ₸</td>
                         <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)'}}>{r.notes||'—'}</td>
-                        <td style={{padding:'9px 14px'}}>
-                          <button onClick={()=>{setEditId(r.id);setEditForm({total_planned:String(r.total_planned),bank_part:String(r.bank_part||''),cash_part:String(r.cash_part||''),notes:r.notes||''})}} style={{padding:'4px 10px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text2)',fontSize:12,cursor:'pointer'}}>✏️ Ред.</button>
+                        <td style={{padding:'9px 14px',whiteSpace:'nowrap'}}>
+                          <button onClick={()=>{setEditId(r.id);setEditForm({total_planned:String(r.total_planned),bank_part:String(r.bank_part||''),cash_part:String(r.cash_part||''),notes:r.notes||''})}} style={{padding:'4px 10px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text2)',fontSize:12,cursor:'pointer',marginRight:4}}>✏️ Ред.</button>
+                          <button onClick={()=>deletePlan(r.id)} disabled={loading} style={{padding:'4px 10px',borderRadius:5,border:'1px solid rgba(248,81,73,.4)',background:'var(--red-bg)',color:'var(--red)',fontSize:12,cursor:'pointer'}}>🗑</button>
                         </td>
                       </>
                     )}

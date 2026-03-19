@@ -110,6 +110,8 @@ export default function RemotesPage() {
   const [reconcileStatus, setReconcileStatus] = useState<string | null>(null)
   const [reconciling, setReconciling] = useState(false)
   const [form, setForm] = useState({ pult_number: '', name: '', address: '', phone: '', monthly_rate: '' })
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<{ pult_number: string; name: string; address: string; phone: string; monthly_rate: string } | null>(null)
 
   const now = new Date()
   const defaultMonth = buildMonthKey(now.getFullYear(), now.getMonth())
@@ -235,6 +237,26 @@ export default function RemotesPage() {
       setForm({ pult_number: '', name: '', address: '', phone: '', monthly_rate: '' })
       setShowAdd(false)
     }
+  }
+
+  async function saveEdit() {
+    if (!editId || !editForm) return
+    if (!editForm.pult_number.trim() || !editForm.name.trim()) return
+    setSaving(editId)
+    const s = createClient()
+    const { data, error } = await s.from('clients').update({
+      pult_number: editForm.pult_number.trim(),
+      name: editForm.name.trim(),
+      address: editForm.address.trim() || null,
+      phone: editForm.phone.trim() || null,
+      monthly_rate: parseFloat(editForm.monthly_rate) || 0,
+    }).eq('id', editId).select().single()
+    if (!error && data) {
+      setClients(prev => prev.map(c => c.id === editId ? data : c).sort((a, b) => a.pult_number.localeCompare(b.pult_number, undefined, { numeric: true })))
+      setEditId(null)
+      setEditForm(null)
+    }
+    setSaving(null)
   }
 
   /** Import JSON file from pult monitoring system */
@@ -737,54 +759,104 @@ export default function RemotesPage() {
                 {filtered.map(c => {
                   const paid = isPaid(c.id)
                   const payment = getPayment(c.id)
+                  const isEdit = editId === c.id
                   return (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--border)', background: paid ? 'transparent' : 'rgba(248,81,73,.04)' }}>
-                      <td style={{ padding: '9px 14px', fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap', color: 'var(--blue)' }}>{c.pult_number}</td>
-                      <td style={{ padding: '9px 14px', fontWeight: 500 }}>{c.name}</td>
-                      <td style={{ padding: '9px 14px', color: 'var(--text2)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.address || '—'}</td>
-                      <td style={{ padding: '9px 14px', color: 'var(--text2)', whiteSpace: 'nowrap' }}>{c.phone || '—'}</td>
-                      <td style={{ padding: '9px 14px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: 'var(--text2)' }}>
-                        {c.monthly_rate > 0 ? fmt(Number(c.monthly_rate)) + ' ₸' : '—'}
-                      </td>
-                      <td style={{ padding: '9px 14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button
-                            onClick={() => togglePaid(c)}
-                            disabled={saving === c.id}
-                            style={{
-                              padding: '5px 14px', borderRadius: 6, border: 'none',
-                              background: paid ? 'var(--green-bg)' : 'var(--red-bg)',
-                              color: paid ? 'var(--green)' : 'var(--red)',
-                              fontSize: 12, cursor: saving === c.id ? 'wait' : 'pointer', fontWeight: 500,
-                              opacity: saving === c.id ? 0.5 : 1, whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {saving === c.id ? '...' : paid ? '✓ Оплачено' : '✗ Не оплачено'}
-                          </button>
-                          {payment?.notes && (
-                            <span style={{ fontSize: 10, color: 'var(--text3)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={payment.notes}>
-                              {payment.notes}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
-                        <button
-                          onClick={() => deleteClient(c)}
-                          disabled={deleting === c.id}
-                          title="Скрыть пульт из списка"
-                          style={{
-                            padding: '5px 10px', borderRadius: 6,
-                            border: '1px solid rgba(248,81,73,.4)',
-                            background: 'var(--red-bg)', color: 'var(--red)', fontSize: 12,
-                            cursor: deleting === c.id ? 'wait' : 'pointer',
-                            opacity: deleting === c.id ? 0.4 : 1,
-                            lineHeight: 1, whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {deleting === c.id ? '...' : '🗑 Удалить'}
-                        </button>
-                      </td>
+                    <tr key={c.id} style={{ borderBottom: '1px solid var(--border)', background: isEdit ? 'var(--blue-bg)' : paid ? 'transparent' : 'rgba(248,81,73,.04)' }}>
+                      {isEdit ? (
+                        <>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input value={editForm!.pult_number} onChange={e => setEditForm(f => f && ({ ...f, pult_number: e.target.value }))}
+                              placeholder="83/1" style={{ width: 70, padding: '4px 7px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, fontFamily: 'monospace' }} />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input value={editForm!.name} onChange={e => setEditForm(f => f && ({ ...f, name: e.target.value }))}
+                              style={{ width: '100%', minWidth: 140, padding: '4px 7px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input value={editForm!.address} onChange={e => setEditForm(f => f && ({ ...f, address: e.target.value }))}
+                              style={{ width: '100%', minWidth: 120, padding: '4px 7px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input value={editForm!.phone} onChange={e => setEditForm(f => f && ({ ...f, phone: e.target.value }))}
+                              style={{ width: 130, padding: '4px 7px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input type="number" value={editForm!.monthly_rate} onChange={e => setEditForm(f => f && ({ ...f, monthly_rate: e.target.value }))}
+                              style={{ width: 90, padding: '4px 7px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
+                          </td>
+                          <td style={{ padding: '9px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button onClick={() => togglePaid(c)} disabled={saving === c.id}
+                                style={{ padding: '5px 14px', borderRadius: 6, border: 'none', background: paid ? 'var(--green-bg)' : 'var(--red-bg)', color: paid ? 'var(--green)' : 'var(--red)', fontSize: 12, cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                                {paid ? '✓ Оплачено' : '✗ Не оплачено'}
+                              </button>
+                            </div>
+                          </td>
+                          <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                            <button onClick={saveEdit} disabled={saving === c.id}
+                              style={{ padding: '4px 10px', borderRadius: 5, border: 'none', background: 'var(--blue)', color: '#fff', fontSize: 12, cursor: 'pointer', marginRight: 4 }}>
+                              {saving === c.id ? '...' : 'Сохранить'}
+                            </button>
+                            <button onClick={() => { setEditId(null); setEditForm(null) }}
+                              style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', fontSize: 12, cursor: 'pointer' }}>✕</button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ padding: '9px 14px', fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap', color: 'var(--blue)' }}>{c.pult_number}</td>
+                          <td style={{ padding: '9px 14px', fontWeight: 500 }}>{c.name}</td>
+                          <td style={{ padding: '9px 14px', color: 'var(--text2)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.address || '—'}</td>
+                          <td style={{ padding: '9px 14px', color: 'var(--text2)', whiteSpace: 'nowrap' }}>{c.phone || '—'}</td>
+                          <td style={{ padding: '9px 14px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: 'var(--text2)' }}>
+                            {c.monthly_rate > 0 ? fmt(Number(c.monthly_rate)) + ' ₸' : '—'}
+                          </td>
+                          <td style={{ padding: '9px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button
+                                onClick={() => togglePaid(c)}
+                                disabled={saving === c.id}
+                                style={{
+                                  padding: '5px 14px', borderRadius: 6, border: 'none',
+                                  background: paid ? 'var(--green-bg)' : 'var(--red-bg)',
+                                  color: paid ? 'var(--green)' : 'var(--red)',
+                                  fontSize: 12, cursor: saving === c.id ? 'wait' : 'pointer', fontWeight: 500,
+                                  opacity: saving === c.id ? 0.5 : 1, whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {saving === c.id ? '...' : paid ? '✓ Оплачено' : '✗ Не оплачено'}
+                              </button>
+                              {payment?.notes && (
+                                <span style={{ fontSize: 10, color: 'var(--text3)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={payment.notes}>
+                                  {payment.notes}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button
+                              onClick={() => { setEditId(c.id); setEditForm({ pult_number: c.pult_number, name: c.name, address: c.address || '', phone: c.phone || '', monthly_rate: c.monthly_rate > 0 ? String(c.monthly_rate) : '' }) }}
+                              style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', fontSize: 12, cursor: 'pointer', marginRight: 4 }}
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => deleteClient(c)}
+                              disabled={deleting === c.id}
+                              title="Скрыть пульт из списка"
+                              style={{
+                                padding: '5px 10px', borderRadius: 6,
+                                border: '1px solid rgba(248,81,73,.4)',
+                                background: 'var(--red-bg)', color: 'var(--red)', fontSize: 12,
+                                cursor: deleting === c.id ? 'wait' : 'pointer',
+                                opacity: deleting === c.id ? 0.4 : 1,
+                                lineHeight: 1, whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {deleting === c.id ? '...' : '🗑'}
+                            </button>
+                          </td>
+                        </>
+                      )}
                     </tr>
                   )
                 })}
