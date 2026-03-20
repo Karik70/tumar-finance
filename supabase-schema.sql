@@ -42,10 +42,14 @@ create table if not exists salary_plan (
   total_planned numeric(14,2) not null,
   bank_part numeric(14,2),
   cash_part numeric(14,2),
+  paid_out numeric(14,2),   -- фактически выдано
   notes text,
   created_by uuid references users(id),
   created_at timestamptz default now()
 );
+
+-- Migration: add paid_out if upgrading existing DB
+-- alter table salary_plan add column if not exists paid_out numeric(14,2);
 
 -- Weekly snapshots (для сверки директора)
 create table if not exists weekly_snapshots (
