@@ -5,6 +5,7 @@ import { createClient, ensureUserExists } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 
 const fmt=(n:number)=>n.toLocaleString('ru-RU')
+const inp = {padding:'4px 7px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',fontSize:13,width:90} as const
 
 export default function SnapshotPage() {
   const router = useRouter()
@@ -13,6 +14,8 @@ export default function SnapshotPage() {
   const [snaps, setSnaps] = useState<any[]>([])
   const [form, setForm] = useState({snap_date:new Date().toISOString().slice(0,10),balance_narodniy:'',balance_kaspi:'',balance_cash:'',zp_remaining:'',notes:''})
   const [msg, setMsg] = useState('')
+  const [editId, setEditId] = useState<string|null>(null)
+  const [editForm, setEditForm] = useState<any>(null)
 
   useEffect(()=>{
     const s=createClient()
@@ -34,6 +37,31 @@ export default function SnapshotPage() {
     setForm(f=>({...f,balance_narodniy:'',balance_kaspi:'',balance_cash:'',zp_remaining:'',notes:''}))
     load(s);setLoading(false)
     setTimeout(()=>setMsg(''),3000)
+  }
+
+  async function saveEdit(){
+    if(!editId||!editForm) return
+    setLoading(true)
+    const s=createClient()
+    const {error}=await s.from('weekly_snapshots').update({
+      snap_date:editForm.snap_date,
+      balance_narodniy:parseFloat(editForm.balance_narodniy)||0,
+      balance_kaspi:parseFloat(editForm.balance_kaspi)||0,
+      balance_cash:parseFloat(editForm.balance_cash)||0,
+      zp_remaining:parseFloat(editForm.zp_remaining)||0,
+      notes:editForm.notes||null,
+    }).eq('id',editId)
+    if(error){setMsg('Ошибка: '+error.message)}else{setMsg('✅ Сохранено');setEditId(null);setEditForm(null);load(s)}
+    setLoading(false);setTimeout(()=>setMsg(''),3000)
+  }
+
+  async function deleteSnap(id:string){
+    if(!window.confirm('Удалить запись?')) return
+    setLoading(true)
+    const s=createClient()
+    const {error}=await s.from('weekly_snapshots').delete().eq('id',id)
+    if(error){setMsg('Ошибка: '+error.message)}else{load(s)}
+    setLoading(false)
   }
 
   const last = snaps[0]
@@ -92,25 +120,49 @@ export default function SnapshotPage() {
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:700}}>
               <thead>
-                <tr>{['Дата','Нар. банк','Каспи','Нал','Итого','На ЗП','Статус','Заметки'].map(h=>(
+                <tr>{['Дата','Нар. банк','Каспи','Нал','Итого','На ЗП','Статус','Заметки',''].map(h=>(
                   <th key={h} style={{padding:'10px 14px',fontWeight:500,fontSize:11,textTransform:'uppercase',letterSpacing:'.04em',textAlign:'left',borderBottom:'1px solid var(--border)',color:'var(--text2)'}}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
-                {snaps.length===0&&<tr><td colSpan={8} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
+                {snaps.length===0&&<tr><td colSpan={9} style={{padding:'24px',textAlign:'center',color:'var(--text3)'}}>Нет записей</td></tr>}
                 {snaps.map((r,i)=>{
                   const tot=Number(r.balance_narodniy)+Number(r.balance_kaspi)+Number(r.balance_cash)
                   const d=tot-Number(r.zp_remaining)
+                  const isEdit=editId===r.id
                   return (
-                    <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                      <td style={{padding:'9px 14px',fontWeight:500,whiteSpace:'nowrap'}}>{r.snap_date}</td>
-                      <td style={{padding:'9px 14px',color:'var(--blue)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_narodniy))}</td>
-                      <td style={{padding:'9px 14px',color:'var(--amber)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_kaspi))}</td>
-                      <td style={{padding:'9px 14px',color:'var(--text2)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_cash))}</td>
-                      <td style={{padding:'9px 14px',fontWeight:600,fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(tot)}</td>
-                      <td style={{padding:'9px 14px',color:'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.zp_remaining))}</td>
-                      <td style={{padding:'9px 14px',whiteSpace:'nowrap'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:d>=0?'var(--green-bg)':'var(--red-bg)',color:d>=0?'var(--green)':'var(--red)'}}>{d>=0?`+${fmt(d)}`:`${fmt(d)}`}</span></td>
-                      <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.notes||'—'}</td>
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)',background:isEdit?'var(--blue-bg)':'transparent'}}>
+                      {isEdit?(
+                        <>
+                          <td style={{padding:'6px 8px'}}><input type="date" value={editForm.snap_date} onChange={e=>setEditForm((f:any)=>({...f,snap_date:e.target.value}))} style={{...inp,width:120}} /></td>
+                          <td style={{padding:'6px 8px'}}><input type="number" value={editForm.balance_narodniy} onChange={e=>setEditForm((f:any)=>({...f,balance_narodniy:e.target.value}))} style={inp} /></td>
+                          <td style={{padding:'6px 8px'}}><input type="number" value={editForm.balance_kaspi} onChange={e=>setEditForm((f:any)=>({...f,balance_kaspi:e.target.value}))} style={inp} /></td>
+                          <td style={{padding:'6px 8px'}}><input type="number" value={editForm.balance_cash} onChange={e=>setEditForm((f:any)=>({...f,balance_cash:e.target.value}))} style={inp} /></td>
+                          <td style={{padding:'9px 14px',color:'var(--text3)',fontSize:12}}>—</td>
+                          <td style={{padding:'6px 8px'}}><input type="number" value={editForm.zp_remaining} onChange={e=>setEditForm((f:any)=>({...f,zp_remaining:e.target.value}))} style={inp} /></td>
+                          <td style={{padding:'9px 14px',color:'var(--text3)',fontSize:12}}>—</td>
+                          <td style={{padding:'6px 8px'}}><input value={editForm.notes} onChange={e=>setEditForm((f:any)=>({...f,notes:e.target.value}))} style={{...inp,width:140}} /></td>
+                          <td style={{padding:'6px 8px',whiteSpace:'nowrap'}}>
+                            <button onClick={saveEdit} disabled={loading} style={{padding:'4px 10px',borderRadius:5,border:'none',background:'var(--blue)',color:'#fff',fontSize:12,cursor:'pointer',marginRight:4}}>{loading?'...':'Сохранить'}</button>
+                            <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{padding:'4px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text2)',fontSize:12,cursor:'pointer'}}>✕</button>
+                          </td>
+                        </>
+                      ):(
+                        <>
+                          <td style={{padding:'9px 14px',fontWeight:500,whiteSpace:'nowrap'}}>{r.snap_date}</td>
+                          <td style={{padding:'9px 14px',color:'var(--blue)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_narodniy))}</td>
+                          <td style={{padding:'9px 14px',color:'var(--amber)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_kaspi))}</td>
+                          <td style={{padding:'9px 14px',color:'var(--text2)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.balance_cash))}</td>
+                          <td style={{padding:'9px 14px',fontWeight:600,fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(tot)}</td>
+                          <td style={{padding:'9px 14px',color:'var(--red)',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{fmt(Number(r.zp_remaining))}</td>
+                          <td style={{padding:'9px 14px',whiteSpace:'nowrap'}}><span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:d>=0?'var(--green-bg)':'var(--red-bg)',color:d>=0?'var(--green)':'var(--red)'}}>{d>=0?`+${fmt(d)}`:`${fmt(d)}`}</span></td>
+                          <td style={{padding:'9px 14px',fontSize:12,color:'var(--text2)',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.notes||'—'}</td>
+                          <td style={{padding:'9px 10px',whiteSpace:'nowrap'}}>
+                            <button onClick={()=>{setEditId(r.id);setEditForm({snap_date:r.snap_date,balance_narodniy:String(r.balance_narodniy),balance_kaspi:String(r.balance_kaspi),balance_cash:String(r.balance_cash),zp_remaining:String(r.zp_remaining),notes:r.notes||''})}} style={{padding:'4px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text2)',fontSize:12,cursor:'pointer',marginRight:4}}>✏️</button>
+                            <button onClick={()=>deleteSnap(r.id)} disabled={loading} style={{padding:'4px 8px',borderRadius:5,border:'1px solid rgba(248,81,73,.4)',background:'var(--red-bg)',color:'var(--red)',fontSize:12,cursor:'pointer'}}>🗑</button>
+                          </td>
+                        </>
+                      )}
                     </tr>
                   )
                 })}
