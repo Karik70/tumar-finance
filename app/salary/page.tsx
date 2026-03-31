@@ -17,6 +17,7 @@ export default function SalaryPage() {
   const [editForm, setEditForm] = useState<any>(null)
   const [snaps, setSnaps] = useState<any[]>([])
   const [bankIncome, setBankIncome] = useState(0)
+  const [timesheetFOT, setTimesheetFOT] = useState<any>(null)
 
   useEffect(()=>{
     const s=createClient()
@@ -26,14 +27,16 @@ export default function SalaryPage() {
   async function load(s:any){
     const now=new Date()
     const monthStart=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10)
-    const [pRes,sRes,bRes]=await Promise.all([
+    const [pRes,sRes,bRes,tsRes]=await Promise.all([
       s.from('salary_plan').select('*').order('month',{ascending:false}).limit(12),
       s.from('weekly_snapshots').select('*').order('snap_date',{ascending:false}).limit(1),
-      s.from('bank_entries').select('amount').eq('type','income').gte('entry_date',monthStart)
+      s.from('bank_entries').select('amount').eq('type','income').gte('entry_date',monthStart),
+      s.from('timesheet_sync_log').select('*').eq('month',monthStart).order('synced_at',{ascending:false}).limit(1)
     ])
     setPlans(pRes.data||[])
     setSnaps(sRes.data||[])
     setBankIncome((bRes.data||[]).reduce((s:number,r:any)=>s+Number(r.amount),0))
+    setTimesheetFOT(tsRes.data?.[0]||null)
   }
 
   async function submit(e:React.FormEvent){
@@ -106,6 +109,48 @@ export default function SalaryPage() {
               </div>
               <div style={{fontSize:12,color:coverage>=100?'var(--green)':'var(--red)',marginTop:4}}>
                 {coverage>=100?`Хватает, запас ${fmt(totalBalance-planned)} ₸`:`Не хватает ${fmt(planned-totalBalance)} ₸`}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Timesheet FOT comparison */}
+        {timesheetFOT && (
+          <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'22px 28px',marginBottom:24}}>
+            <div style={{fontSize:14,fontWeight:600,marginBottom:14,color:'var(--text)'}}>
+              Реальный ФОТ из табеля vs План
+            </div>
+            <div className="grid-coverage" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:20}}>
+              <div>
+                <div style={{fontSize:12,color:'var(--text2)',marginBottom:4}}>ФОТ по табелю</div>
+                <div style={{fontSize:22,fontWeight:700,color:'var(--amber)'}}>{fmt(Number(timesheetFOT.total_salary))} ₸</div>
+                <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>{timesheetFOT.total_guards} чел ({timesheetFOT.official_count} оф / {timesheetFOT.unofficial_count} не)</div>
+              </div>
+              <div>
+                <div style={{fontSize:12,color:'var(--text2)',marginBottom:4}}>Официальные</div>
+                <div style={{fontSize:22,fontWeight:700,color:'var(--green)'}}>{fmt(Number(timesheetFOT.official_salary))} ₸</div>
+                <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>+ налоги ~{fmt(Number(timesheetFOT.tax_estimate))} ₸</div>
+              </div>
+              <div>
+                <div style={{fontSize:12,color:'var(--text2)',marginBottom:4}}>Неофициальные</div>
+                <div style={{fontSize:22,fontWeight:700,color:'#f59e0b'}}>{fmt(Number(timesheetFOT.unofficial_salary))} ₸</div>
+                <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>наличными, вне 1С</div>
+              </div>
+              <div>
+                <div style={{fontSize:12,color:'var(--text2)',marginBottom:4}}>Разница (план - табель)</div>
+                {(() => {
+                  const diff = planned - Number(timesheetFOT.total_salary)
+                  return (
+                    <>
+                      <div style={{fontSize:22,fontWeight:700,color:diff>=0?'var(--green)':'var(--red)'}}>
+                        {diff>=0?'+':''}{fmt(diff)} ₸
+                      </div>
+                      <div style={{fontSize:11,color:diff>=0?'var(--green)':'var(--red)',marginTop:2}}>
+                        {diff>=0?'План покрывает':'ПЛАН ЗАНИЖЕН! Реально нужно больше'}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>

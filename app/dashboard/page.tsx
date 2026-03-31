@@ -17,6 +17,8 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<any[]>([])
   const [recentEntries, setRecentEntries] = useState<any[]>([])
   const [lastSnap, setLastSnap] = useState<any>(null)
+  const [timesheetFOT, setTimesheetFOT] = useState<any>(null)
+  const [cashAccountability, setCashAccountability] = useState<{reported:number,fromTimesheet:number,unaccounted:number}|null>(null)
 
   useEffect(() => {
     const s = createClient()
@@ -78,6 +80,26 @@ export default function Dashboard() {
       ...(recentBank.data||[]).map((r:any)=>({...r, source: r.bank==='narodniy'?'Нар. банк':'Каспи'})),
       ...(recentCash.data||[]).map((r:any)=>({...r, source:'Наличные'}))
     ].sort((a,b)=>new Date(b.entry_date).getTime()-new Date(a.entry_date).getTime()).slice(0,12)
+
+    // Load timesheet FOT for current month
+    const { data: tsData } = await s
+      .from('timesheet_sync_log')
+      .select('*')
+      .eq('month', monthStart)
+      .order('synced_at', { ascending: false })
+      .limit(1)
+    setTimesheetFOT(tsData?.[0] || null)
+
+    // Calculate cash accountability
+    if (tsData?.[0]) {
+      const cashExpenses = cash.filter((r:any) => r.type === 'expense').reduce((sum:number, r:any) => sum + Number(r.amount), 0)
+      const unofficialSalary = Number(tsData[0].unofficial_salary) || 0
+      setCashAccountability({
+        reported: cashExpenses,
+        fromTimesheet: unofficialSalary,
+        unaccounted: cashExpenses - unofficialSalary,
+      })
+    }
     setRecentEntries(recent)
 
     setLoading(false)
@@ -121,6 +143,34 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Timesheet FOT banner */}
+        {timesheetFOT && (
+          <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 22px',marginBottom:16,display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))',gap:16}}>
+            <div>
+              <div style={{fontSize:11,color:'var(--text2)',marginBottom:4}}>ФОТ по табелю</div>
+              <div style={{fontSize:20,fontWeight:700,color:'var(--amber)'}}>{fmt(Number(timesheetFOT.total_salary))} ₸</div>
+              <div style={{fontSize:11,color:'var(--text3)'}}>реальный расход на ЗП</div>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:'var(--text2)',marginBottom:4}}>Официальные ({timesheetFOT.official_count} чел)</div>
+              <div style={{fontSize:20,fontWeight:700,color:'var(--green)'}}>{fmt(Number(timesheetFOT.official_salary))} ₸</div>
+              <div style={{fontSize:11,color:'var(--text3)'}}>через банк + налоги ~{fmt(Number(timesheetFOT.tax_estimate))} ₸</div>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:'var(--text2)',marginBottom:4}}>Неофициальные ({timesheetFOT.unofficial_count} чел)</div>
+              <div style={{fontSize:20,fontWeight:700,color:'#f59e0b'}}>{fmt(Number(timesheetFOT.unofficial_salary))} ₸</div>
+              <div style={{fontSize:11,color:'var(--text3)'}}>наличными, вне 1С</div>
+            </div>
+            {cashAccountability && cashAccountability.unaccounted > 10000 && (
+              <div style={{background:'#fef2f2',borderRadius:10,padding:'10px 14px',border:'1px solid rgba(248,81,73,.3)'}}>
+                <div style={{fontSize:11,color:'var(--red)',fontWeight:600,marginBottom:4}}>Неучтённые наличные</div>
+                <div style={{fontSize:20,fontWeight:700,color:'var(--red)'}}>{fmt(cashAccountability.unaccounted)} ₸</div>
+                <div style={{fontSize:10,color:'var(--text2)'}}>потрачено {fmt(cashAccountability.reported)} - ЗП неоф {fmt(cashAccountability.fromTimesheet)}</div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Top stats */}
         <div className="grid-stats" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:24}}>

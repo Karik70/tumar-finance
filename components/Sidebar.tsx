@@ -11,6 +11,7 @@ const NAV = [
   { href:'/entry/snapshot',   icon:'📋', label:'Остатки (ежедневно)' },
   { href:'/analytics',        icon:'📈', label:'Аналитика' },
   { href:'/salary',           icon:'👥', label:'ЗП / Покрытие' },
+  { href:'/timesheet',        icon:'📝', label:'Табель / Посты' },
   { href:'/remotes',          icon:'📡', label:'База пультов' },
 ]
 
