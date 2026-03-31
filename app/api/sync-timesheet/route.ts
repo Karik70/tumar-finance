@@ -11,97 +11,146 @@ function getServiceClient() {
 
 export async function POST(request: Request) {
   try {
-    // Verify request is from authorized source
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || authHeader !== `Bearer ${process.env.SYNC_SECRET_KEY}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
+    // Accept dashboard URL and key from request body (server-side proxy)
     const body = await request.json();
-    const { month, totals, guardPosts, syncedAt } = body;
+    const { dashboardUrl, integrationKey, month } = body;
 
-    if (!month || !guardPosts) {
-      return NextResponse.json({ error: 'Missing required fields: month, guardPosts' }, { status: 400 });
+    // Option 1: Direct data push (legacy — data already provided)
+    if (body.guardPosts && body.totals) {
+      // Verify auth for direct push
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader || authHeader !== `Bearer ${process.env.SYNC_SECRET_KEY}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      return await saveTimesheetData(body);
     }
 
-    const supabase = getServiceClient();
+    // Option 2: Proxy fetch from TumarDashboard (new — server-to-server)
+    if (!dashboardUrl || !integrationKey || !month) {
+      return NextResponse.json(
+        { error: 'Missing required fields: dashboardUrl, integrationKey, month' },
+        { status: 400 }
+      );
+    }
 
-    // 1. Upsert guard posts
-    const guardPostMap: Record<string, string> = {};
-    for (const gp of guardPosts) {
-      const { data, error } = await supabase
-        .from('guard_posts')
+    // Fetch from TumarDashboard (server-to-server, no CORS issues)
+    const url = `${dashboardUrl.replace(/\/+$/, '')}/api/integration/timesheet-sync?month=${month}`;
+    const fetchRes = await fetch(url, {
+      headers: { 'X-Integration-Key': integrationKey },
+    });
+
+    if (!fetchRes.ok) {
+      const text = await fetchRes.text().catch(() => '');
+      return NextResponse.json(
+        { error: `TumarDashboard вернул ${fetchRes.status}: ${text.slice(0, 200)}` },
+        { status: 502 }
+      );
+    }
+
+    const data = await fetchRes.json();
+
+    if (!data.guardPosts || !data.totals) {
+      return NextResponse.json(
+        { error: 'TumarDashboard вернул некорректные данные (нет guardPosts или totals)' },
+        { status: 502 }
+      );
+    }
+
+    // Save to Supabase
+    return await saveTimesheetData(data);
+
+  } catch (error: any) {
+    console.error('Sync error:', error);
+    return NextResponse.json({ error: error.message || 'Sync failed' }, { status: 500 });
+  }
+}
+
+async function saveTimesheetData(body: any) {
+  const { month, totals, guardPosts, syncedAt } = body;
+
+  if (!month || !guardPosts) {
+    return NextResponse.json({ error: 'Missing required fields: month, guardPosts' }, { status: 400 });
+  }
+
+  const supabase = getServiceClient();
+
+  // 1. Upsert guard posts
+  const guardPostMap: Record<string, string> = {};
+  for (const gp of guardPosts) {
+    const { data, error } = await supabase
+      .from('guard_posts')
+      .upsert({
+        external_id: gp.guardPostId,
+        number: gp.number,
+        callsign: gp.callsign,
+        name: gp.name,
+        address: gp.address,
+        rate: gp.rate,
+        synced_at: syncedAt || new Date().toISOString(),
+      }, { onConflict: 'external_id' })
+      .select('id, external_id')
+      .single();
+
+    if (error) {
+      console.error('Guard post upsert error:', error);
+      continue;
+    }
+    guardPostMap[gp.guardPostId] = data.id;
+  }
+
+  // 2. Upsert guards and timesheet entries
+  let totalEntries = 0;
+  for (const gp of guardPosts) {
+    const gpId = guardPostMap[gp.guardPostId];
+    if (!gpId) continue;
+
+    for (const guard of gp.guards) {
+      // Upsert guard
+      const { data: guardData, error: guardError } = await supabase
+        .from('guards')
         .upsert({
-          external_id: gp.guardPostId,
-          number: gp.number,
-          callsign: gp.callsign,
-          name: gp.name,
-          address: gp.address,
-          rate: gp.rate,
-          synced_at: syncedAt,
+          external_id: guard.guardId,
+          surname: guard.surname,
+          first_name: guard.firstName,
+          patronymic: guard.patronymic,
+          iin: guard.iin,
+          is_official: guard.isOfficial,
+          synced_at: syncedAt || new Date().toISOString(),
         }, { onConflict: 'external_id' })
-        .select('id, external_id')
+        .select('id')
         .single();
 
-      if (error) {
-        console.error('Guard post upsert error:', error);
+      if (guardError) {
+        console.error('Guard upsert error:', guardError);
         continue;
       }
-      guardPostMap[gp.guardPostId] = data.id;
-    }
 
-    // 2. Upsert guards and timesheet entries
-    let totalEntries = 0;
-    for (const gp of guardPosts) {
-      const gpId = guardPostMap[gp.guardPostId];
-      if (!gpId) continue;
+      // Upsert timesheet entry
+      const { error: tsError } = await supabase
+        .from('timesheet_entries')
+        .upsert({
+          month: month,
+          guard_post_id: gpId,
+          guard_id: guardData.id,
+          rate: gp.rate,
+          days_worked: guard.daysWorked,
+          shifts_worked: guard.shiftsWorked,
+          total_hours: guard.totalHours,
+          salary: guard.salary,
+          is_official: guard.isOfficial,
+          synced_at: syncedAt || new Date().toISOString(),
+        }, { onConflict: 'month,guard_post_id,guard_id' });
 
-      for (const guard of gp.guards) {
-        // Upsert guard
-        const { data: guardData, error: guardError } = await supabase
-          .from('guards')
-          .upsert({
-            external_id: guard.guardId,
-            surname: guard.surname,
-            first_name: guard.firstName,
-            patronymic: guard.patronymic,
-            iin: guard.iin,
-            is_official: guard.isOfficial,
-            synced_at: syncedAt,
-          }, { onConflict: 'external_id' })
-          .select('id')
-          .single();
-
-        if (guardError) {
-          console.error('Guard upsert error:', guardError);
-          continue;
-        }
-
-        // Upsert timesheet entry
-        const { error: tsError } = await supabase
-          .from('timesheet_entries')
-          .upsert({
-            month: month,
-            guard_post_id: gpId,
-            guard_id: guardData.id,
-            rate: gp.rate,
-            days_worked: guard.daysWorked,
-            shifts_worked: guard.shiftsWorked,
-            total_hours: guard.totalHours,
-            salary: guard.salary,
-            is_official: guard.isOfficial,
-            synced_at: syncedAt,
-          }, { onConflict: 'month,guard_post_id,guard_id' });
-
-        if (tsError) {
-          console.error('Timesheet upsert error:', tsError);
-          continue;
-        }
-        totalEntries++;
+      if (tsError) {
+        console.error('Timesheet upsert error:', tsError);
+        continue;
       }
+      totalEntries++;
     }
+  }
 
-    // 3. Log sync
+  // 3. Log sync
+  if (totals) {
     await supabase.from('timesheet_sync_log').insert({
       month: month,
       total_guards: totals.totalGuards,
@@ -111,19 +160,15 @@ export async function POST(request: Request) {
       official_salary: totals.officialSalary,
       unofficial_salary: totals.unofficialSalary,
       tax_estimate: totals.taxEstimate,
-      synced_at: syncedAt,
+      synced_at: syncedAt || new Date().toISOString(),
     });
-
-    return NextResponse.json({
-      success: true,
-      message: `Synced ${totalEntries} timesheet entries for ${guardPosts.length} posts`,
-      month,
-      totalEntries,
-      totals,
-    });
-
-  } catch (error: any) {
-    console.error('Sync error:', error);
-    return NextResponse.json({ error: error.message || 'Sync failed' }, { status: 500 });
   }
+
+  return NextResponse.json({
+    success: true,
+    message: `Synced ${totalEntries} timesheet entries for ${guardPosts.length} posts`,
+    month,
+    totalEntries,
+    totals,
+  });
 }

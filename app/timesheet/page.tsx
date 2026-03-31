@@ -152,32 +152,26 @@ export default function TimesheetPage() {
 
     setSyncing(true); setMsg('')
     try {
-      // 1. Fetch from TumarDashboard
-      const res = await fetch(`${dashboardUrl}/api/integration/timesheet-sync?month=${month}`, {
-        headers: { 'X-Integration-Key': integrationKey }
-      })
-      if (!res.ok) throw new Error(`TumarDashboard: ${res.status} ${res.statusText}`)
-      const data = await res.json()
-
-      // 2. Send to our sync API
+      // Server-side proxy: our API fetches from TumarDashboard (no CORS issues)
       const syncRes = await fetch('/api/sync-timesheet', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SYNC_SECRET || localStorage.getItem('tumar_sync_secret') || ''}`,
-        },
-        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dashboardUrl: dashboardUrl.replace(/\/+$/, ''),
+          integrationKey,
+          month,
+        }),
       })
-      if (!syncRes.ok) throw new Error(`Sync API: ${syncRes.status}`)
       const result = await syncRes.json()
+      if (!syncRes.ok) throw new Error(result.error || `Sync API: ${syncRes.status}`)
 
-      setMsg(`Синхронизировано: ${result.totalEntries} записей по ${data.guardPosts.length} постам`)
+      setMsg(`Синхронизировано: ${result.totalEntries} записей по ${result.totals?.totalGuards || 0} охранникам`)
       const s = createClient(); loadData(s)
     } catch (err: any) {
       setMsg(`Ошибка: ${err.message}`)
     }
     setSyncing(false)
-    setTimeout(() => setMsg(''), 5000)
+    setTimeout(() => setMsg(''), 8000)
   }
 
   async function saveContract(postId: string) {
