@@ -15,6 +15,7 @@ type Guard = {
 type GuardPost = {
   id: string; callsign: string; name: string; address: string;
   rate: number; contract_amount: number; external_id: string;
+  is_internal: boolean;
   total_salary?: number; official_salary?: number; unofficial_salary?: number;
   guard_count?: number; official_count?: number; unofficial_count?: number;
   profit?: number;
@@ -56,7 +57,6 @@ export default function TimesheetPage() {
       if (!data.user) { router.push('/login'); return }
       await ensureUserExists(s, data.user)
       setUser(data.user)
-      // Load saved settings from localStorage
       setDashboardUrl(localStorage.getItem('tumar_dashboard_url') || '')
       setIntegrationKey(localStorage.getItem('tumar_integration_key') || '')
       loadData(s)
@@ -76,13 +76,11 @@ export default function TimesheetPage() {
 
     const posts: GuardPost[] = postsRes.data || []
 
-    // Get timesheet totals per post for selected month
     const { data: tsData } = await s
       .from('timesheet_entries')
       .select('guard_post_id, salary, is_official')
       .eq('month', month)
 
-    // Aggregate per post
     const postTotals: Record<string, any> = {}
     ;(tsData || []).forEach((e: any) => {
       if (!postTotals[e.guard_post_id]) {
@@ -97,6 +95,7 @@ export default function TimesheetPage() {
 
     const enriched = posts.map(p => ({
       ...p,
+      is_internal: p.is_internal || false,
       total_salary: postTotals[p.id]?.total || 0,
       official_salary: postTotals[p.id]?.official || 0,
       unofficial_salary: postTotals[p.id]?.unofficial || 0,
@@ -143,6 +142,12 @@ export default function TimesheetPage() {
     }
   }
 
+  async function toggleInternal(postId: string, currentValue: boolean) {
+    const s = createClient()
+    await s.from('guard_posts').update({ is_internal: !currentValue }).eq('id', postId)
+    setGuardPosts(prev => prev.map(p => p.id === postId ? { ...p, is_internal: !currentValue } : p))
+  }
+
   async function syncFromDashboard() {
     if (!dashboardUrl || !integrationKey) {
       setMsg('Укажите URL и ключ интеграции в настройках')
@@ -152,7 +157,6 @@ export default function TimesheetPage() {
 
     setSyncing(true); setMsg('')
     try {
-      // Server-side proxy: our API fetches from TumarDashboard (no CORS issues)
       const syncRes = await fetch('/api/sync-timesheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -193,20 +197,148 @@ export default function TimesheetPage() {
     setTimeout(() => setMsg(''), 3000)
   }
 
-  // Totals
+  // Split into client objects and internal departments
+  const clientPosts = guardPosts.filter(p => !p.is_internal)
+  const internalPosts = guardPosts.filter(p => p.is_internal)
+
+  // Totals — all
   const totalSalary = guardPosts.reduce((s, p) => s + (p.total_salary || 0), 0)
   const officialSalary = guardPosts.reduce((s, p) => s + (p.official_salary || 0), 0)
   const unofficialSalary = guardPosts.reduce((s, p) => s + (p.unofficial_salary || 0), 0)
-  const totalContract = guardPosts.reduce((s, p) => s + (Number(p.contract_amount) || 0), 0)
-  const totalProfit = totalContract - totalSalary
-  const taxEstimate = Math.round(officialSalary * 0.12)
   const totalGuards = guardPosts.reduce((s, p) => s + (p.guard_count || 0), 0)
+  const taxEstimate = Math.round(officialSalary * 0.12)
+
+  // Totals — client objects only
+  const clientSalary = clientPosts.reduce((s, p) => s + (p.total_salary || 0), 0)
+  const clientContract = clientPosts.reduce((s, p) => s + (Number(p.contract_amount) || 0), 0)
+  const clientProfit = clientContract - clientSalary
+
+  // Totals — internal
+  const internalSalary = internalPosts.reduce((s, p) => s + (p.total_salary || 0), 0)
+
   const lastSync = syncLogs[0]
 
   const monthLabel = (() => {
     const d = new Date(month)
     return d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' })
   })()
+
+  // Reusable row renderer
+  function renderPostRow(gp: GuardPost, showContract: boolean) {
+    return (
+      <>
+        <tr key={gp.id} onClick={() => togglePost(gp.id)}
+          style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background .15s' }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+          <td style={td}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{gp.callsign || gp.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text2)' }}>{gp.address}</div>
+              </div>
+            </div>
+          </td>
+          <td style={{ ...td, textAlign: 'center', width: 40 }}>
+            <button
+              onClick={e => { e.stopPropagation(); toggleInternal(gp.id, gp.is_internal) }}
+              style={{
+                padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                border: 'none',
+                background: gp.is_internal ? '#dbeafe' : '#dcfce7',
+                color: gp.is_internal ? '#1d4ed8' : '#166534',
+              }}
+              title={gp.is_internal ? 'Нажмите чтобы сделать объектом' : 'Нажмите чтобы сделать внутренним'}
+            >
+              {gp.is_internal ? 'отдел' : 'объект'}
+            </button>
+          </td>
+          <td style={{ ...td, textAlign: 'center' }}>
+            {gp.guard_count || 0}
+            <span style={{ fontSize: 11, color: 'var(--text2)', display: 'block' }}>
+              {gp.official_count}оф / {gp.unofficial_count}не
+            </span>
+          </td>
+          <td style={{ ...td, textAlign: 'right', color: '#16a34a' }}>{fmt(gp.official_salary || 0)}</td>
+          <td style={{ ...td, textAlign: 'right', color: '#f59e0b' }}>{fmt(gp.unofficial_salary || 0)}</td>
+          <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(gp.total_salary || 0)}</td>
+          {showContract && (
+            <>
+              <td style={{ ...td, textAlign: 'right' }}>
+                {editingContract === gp.id ? (
+                  <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                    <input value={contractValue} onChange={e => setContractValue(e.target.value)}
+                      type="number" style={{ width: 100, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
+                      autoFocus onKeyDown={e => e.key === 'Enter' && saveContract(gp.id)} />
+                    <button onClick={() => saveContract(gp.id)}
+                      style={{ padding: '4px 8px', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontSize: 12, cursor: 'pointer' }}>OK</button>
+                  </div>
+                ) : (
+                  <span onClick={e => { e.stopPropagation(); setEditingContract(gp.id); setContractValue(String(gp.contract_amount || '')) }}
+                    style={{ cursor: 'pointer', borderBottom: '1px dashed var(--text2)' }}
+                    title="Кликните для редактирования">
+                    {Number(gp.contract_amount) > 0 ? fmt(Number(gp.contract_amount)) : 'указать'}
+                  </span>
+                )}
+              </td>
+              <td style={{
+                ...td, textAlign: 'right', fontWeight: 700,
+                color: Number(gp.contract_amount) === 0 ? 'var(--text2)' : ((gp.profit || 0) >= 0 ? '#16a34a' : '#dc2626')
+              }}>
+                {Number(gp.contract_amount) > 0 ? (
+                  <>{(gp.profit || 0) >= 0 ? '+' : ''}{fmt(gp.profit || 0)}</>
+                ) : '--'}
+              </td>
+            </>
+          )}
+        </tr>
+
+        {/* Expanded: guard details */}
+        {expandedPost === gp.id && (
+          <tr key={gp.id + '-detail'}>
+            <td colSpan={showContract ? 8 : 6} style={{ padding: '0 18px 12px', background: 'var(--bg)' }}>
+              {guardsByPost[gp.id] ? (
+                <table style={{ width: '100%', fontSize: 12, marginTop: 8 }}>
+                  <thead>
+                    <tr style={{ color: 'var(--text2)' }}>
+                      <th style={{ ...th, fontSize: 12 }}>ФИО</th>
+                      <th style={{ ...th, fontSize: 12 }}>Статус</th>
+                      <th style={{ ...th, fontSize: 12 }}>Смен</th>
+                      <th style={{ ...th, fontSize: 12 }}>Дней</th>
+                      <th style={{ ...th, fontSize: 12 }}>Ставка</th>
+                      <th style={{ ...th, fontSize: 12 }}>ЗП</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {guardsByPost[gp.id].map((g, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={td}>{g.surname} {g.first_name} {g.patronymic}</td>
+                        <td style={{ ...td, textAlign: 'center' }}>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+                            background: g.is_official ? '#dcfce7' : '#fef3c7',
+                            color: g.is_official ? '#166534' : '#92400e',
+                          }}>
+                            {g.is_official ? 'офиц' : 'неофиц'}
+                          </span>
+                        </td>
+                        <td style={{ ...td, textAlign: 'center' }}>{g.shifts_worked}</td>
+                        <td style={{ ...td, textAlign: 'center' }}>{g.days_worked}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{fmt(g.rate)}</td>
+                        <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(g.salary)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ padding: 16, textAlign: 'center', color: 'var(--text2)' }}>Загрузка...</div>
+              )}
+            </td>
+          </tr>
+        )}
+      </>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
@@ -235,7 +367,7 @@ export default function TimesheetPage() {
           </div>
         </div>
 
-        {msg && <div style={{ padding: '10px 16px', borderRadius: 8, background: msg.includes('Ошибка') ? '#fef2f2' : '#f0fdf4', color: msg.includes('Ошибка') ? '#dc2626' : '#16a34a', marginBottom: 16, fontSize: 14 }}>{msg}</div>}
+        {msg && <div style={{ padding: '10px 16px', borderRadius: 8, background: msg.includes('Ошибка') ? '#fef2f2' : '#f0fdf4', color: msg.includes('Ошибка') ? '#dc2626' : '#16a34a', marginBottom: 16, fontSize: 14, whiteSpace: 'pre-line' }}>{msg}</div>}
 
         {/* Settings panel */}
         {showSettings && (
@@ -263,14 +395,16 @@ export default function TimesheetPage() {
         )}
 
         {/* Summary cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 24 }}>
-          <SummaryCard label="Всего ФОТ" value={fmt(totalSalary)} sub={`${totalGuards} охранников`} color="#2563eb" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
+          <SummaryCard label="Весь ФОТ" value={fmt(totalSalary)} sub={`${totalGuards} сотрудников`} color="#2563eb" />
+          <SummaryCard label="ФОТ объектов" value={fmt(clientSalary)} sub={`${clientPosts.length} объектов`} color="#8b5cf6" />
+          <SummaryCard label="ФОТ отделов" value={fmt(internalSalary)} sub={`${internalPosts.length} отделов`} color="#6366f1" />
           <SummaryCard label="Официальные" value={fmt(officialSalary)} sub={`+ налоги ~${fmt(taxEstimate)}`} color="#16a34a" />
           <SummaryCard label="Неофициальные" value={fmt(unofficialSalary)} sub="наличными" color="#f59e0b" />
-          <SummaryCard label="Доход (контракты)" value={fmt(totalContract)} sub={totalContract === 0 ? 'заполните контракты' : ''} color="#8b5cf6" />
-          <SummaryCard label="Прибыль" value={fmt(totalProfit)}
-            sub={totalContract > 0 ? (totalProfit >= 0 ? 'объекты окупаются' : 'УБЫТОК!') : ''}
-            color={totalProfit >= 0 ? '#16a34a' : '#dc2626'} />
+          <SummaryCard label="Доход (контракты)" value={fmt(clientContract)} sub={clientContract === 0 ? 'заполните контракты' : ''} color="#8b5cf6" />
+          <SummaryCard label="Прибыль объектов" value={fmt(clientProfit)}
+            sub={clientContract > 0 ? (clientProfit >= 0 ? 'объекты окупаются' : 'УБЫТОК!') : ''}
+            color={clientProfit >= 0 ? '#16a34a' : '#dc2626'} />
         </div>
 
         {/* Cash accountability alert */}
@@ -285,11 +419,11 @@ export default function TimesheetPage() {
           </div>
         )}
 
-        {/* Guard posts table */}
-        <div style={{ borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg2)' }}>
+        {/* ============ SECTION 1: CLIENT OBJECTS ============ */}
+        <div style={{ borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg2)', marginBottom: 24 }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
-              Рентабельность постов — {monthLabel}
+              Охранные объекты — {monthLabel}
             </h2>
             {lastSync && (
               <span style={{ fontSize: 12, color: 'var(--text2)' }}>
@@ -300,15 +434,16 @@ export default function TimesheetPage() {
 
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text2)' }}>Загрузка...</div>
-          ) : guardPosts.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text2)' }}>
-              Нет данных. Нажмите "Синхронизировать" для загрузки табеля.
+          ) : clientPosts.length === 0 ? (
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)', fontSize: 13 }}>
+              {guardPosts.length === 0 ? 'Нет данных. Нажмите "Синхронизировать".' : 'Все посты отмечены как внутренние отделы.'}
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
                   <th style={th}>Пост</th>
+                  <th style={{ ...th, textAlign: 'center' }}>Тип</th>
                   <th style={th}>Охр-ков</th>
                   <th style={th}>ЗП офиц.</th>
                   <th style={th}>ЗП неофиц.</th>
@@ -318,117 +453,89 @@ export default function TimesheetPage() {
                 </tr>
               </thead>
               <tbody>
-                {guardPosts.map(gp => (
-                  <>
-                    <tr key={gp.id} onClick={() => togglePost(gp.id)}
-                      style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background .15s' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <td style={td}>
-                        <div style={{ fontWeight: 600 }}>{gp.callsign || gp.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text2)' }}>{gp.address}</div>
-                      </td>
-                      <td style={{ ...td, textAlign: 'center' }}>
-                        {gp.guard_count || 0}
-                        <span style={{ fontSize: 11, color: 'var(--text2)', display: 'block' }}>
-                          {gp.official_count}оф / {gp.unofficial_count}не
-                        </span>
-                      </td>
-                      <td style={{ ...td, textAlign: 'right', color: '#16a34a' }}>{fmt(gp.official_salary || 0)}</td>
-                      <td style={{ ...td, textAlign: 'right', color: '#f59e0b' }}>{fmt(gp.unofficial_salary || 0)}</td>
-                      <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(gp.total_salary || 0)}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>
-                        {editingContract === gp.id ? (
-                          <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                            <input value={contractValue} onChange={e => setContractValue(e.target.value)}
-                              type="number" style={{ width: 100, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
-                              autoFocus onKeyDown={e => e.key === 'Enter' && saveContract(gp.id)} />
-                            <button onClick={() => saveContract(gp.id)}
-                              style={{ padding: '4px 8px', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontSize: 12, cursor: 'pointer' }}>OK</button>
-                          </div>
-                        ) : (
-                          <span onClick={e => { e.stopPropagation(); setEditingContract(gp.id); setContractValue(String(gp.contract_amount || '')) }}
-                            style={{ cursor: 'pointer', borderBottom: '1px dashed var(--text2)' }}
-                            title="Кликните для редактирования">
-                            {Number(gp.contract_amount) > 0 ? fmt(Number(gp.contract_amount)) : 'указать'}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{
-                        ...td, textAlign: 'right', fontWeight: 700,
-                        color: Number(gp.contract_amount) === 0 ? 'var(--text2)' : ((gp.profit || 0) >= 0 ? '#16a34a' : '#dc2626')
-                      }}>
-                        {Number(gp.contract_amount) > 0 ? (
-                          <>{(gp.profit || 0) >= 0 ? '+' : ''}{fmt(gp.profit || 0)}</>
-                        ) : '—'}
-                      </td>
-                    </tr>
-
-                    {/* Expanded: guard details */}
-                    {expandedPost === gp.id && (
-                      <tr key={gp.id + '-detail'}>
-                        <td colSpan={7} style={{ padding: '0 18px 12px', background: 'var(--bg)' }}>
-                          {guardsByPost[gp.id] ? (
-                            <table style={{ width: '100%', fontSize: 12, marginTop: 8 }}>
-                              <thead>
-                                <tr style={{ color: 'var(--text2)' }}>
-                                  <th style={{ ...th, fontSize: 12 }}>ФИО</th>
-                                  <th style={{ ...th, fontSize: 12 }}>Статус</th>
-                                  <th style={{ ...th, fontSize: 12 }}>Смен</th>
-                                  <th style={{ ...th, fontSize: 12 }}>Дней</th>
-                                  <th style={{ ...th, fontSize: 12 }}>Ставка</th>
-                                  <th style={{ ...th, fontSize: 12 }}>ЗП</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {guardsByPost[gp.id].map((g, i) => (
-                                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={td}>{g.surname} {g.first_name} {g.patronymic}</td>
-                                    <td style={{ ...td, textAlign: 'center' }}>
-                                      <span style={{
-                                        padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-                                        background: g.is_official ? '#dcfce7' : '#fef3c7',
-                                        color: g.is_official ? '#166534' : '#92400e',
-                                      }}>
-                                        {g.is_official ? 'офиц' : 'неофиц'}
-                                      </span>
-                                    </td>
-                                    <td style={{ ...td, textAlign: 'center' }}>{g.shifts_worked}</td>
-                                    <td style={{ ...td, textAlign: 'center' }}>{g.days_worked}</td>
-                                    <td style={{ ...td, textAlign: 'right' }}>{fmt(g.rate)}</td>
-                                    <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(g.salary)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div style={{ padding: 16, textAlign: 'center', color: 'var(--text2)' }}>Загрузка...</div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                ))}
+                {clientPosts.map(gp => renderPostRow(gp, true))}
 
                 {/* Totals row */}
                 <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--bg)' }}>
-                  <td style={td}>ИТОГО</td>
-                  <td style={{ ...td, textAlign: 'center' }}>{totalGuards}</td>
-                  <td style={{ ...td, textAlign: 'right', color: '#16a34a' }}>{fmt(officialSalary)}</td>
-                  <td style={{ ...td, textAlign: 'right', color: '#f59e0b' }}>{fmt(unofficialSalary)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{fmt(totalSalary)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{fmt(totalContract)}</td>
+                  <td style={td}>ИТОГО объекты</td>
+                  <td style={td}></td>
+                  <td style={{ ...td, textAlign: 'center' }}>{clientPosts.reduce((s, p) => s + (p.guard_count || 0), 0)}</td>
+                  <td style={{ ...td, textAlign: 'right', color: '#16a34a' }}>{fmt(clientPosts.reduce((s, p) => s + (p.official_salary || 0), 0))}</td>
+                  <td style={{ ...td, textAlign: 'right', color: '#f59e0b' }}>{fmt(clientPosts.reduce((s, p) => s + (p.unofficial_salary || 0), 0))}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmt(clientSalary)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmt(clientContract)}</td>
                   <td style={{
                     ...td, textAlign: 'right',
-                    color: totalContract === 0 ? 'var(--text2)' : (totalProfit >= 0 ? '#16a34a' : '#dc2626')
+                    color: clientContract === 0 ? 'var(--text2)' : (clientProfit >= 0 ? '#16a34a' : '#dc2626')
                   }}>
-                    {totalContract > 0 ? `${totalProfit >= 0 ? '+' : ''}${fmt(totalProfit)}` : '—'}
+                    {clientContract > 0 ? `${clientProfit >= 0 ? '+' : ''}${fmt(clientProfit)}` : '--'}
                   </td>
                 </tr>
               </tbody>
             </table>
           )}
         </div>
+
+        {/* ============ SECTION 2: INTERNAL DEPARTMENTS ============ */}
+        {(internalPosts.length > 0 || (!loading && guardPosts.length > 0)) && (
+          <div style={{ borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg2)', marginBottom: 24 }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+              <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                Внутренние отделы (накладные расходы) — {monthLabel}
+              </h2>
+            </div>
+
+            {internalPosts.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text2)', fontSize: 13 }}>
+                Нажмите «объект» рядом с постом чтобы перевести его во «внутренние отделы» (дежурная часть, техотдел и т.д.)
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                    <th style={th}>Отдел</th>
+                    <th style={{ ...th, textAlign: 'center' }}>Тип</th>
+                    <th style={th}>Сотр-ков</th>
+                    <th style={th}>ЗП офиц.</th>
+                    <th style={th}>ЗП неофиц.</th>
+                    <th style={th}>Итого ЗП</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {internalPosts.map(gp => renderPostRow(gp, false))}
+
+                  {/* Totals row */}
+                  <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--bg)' }}>
+                    <td style={td}>ИТОГО отделы</td>
+                    <td style={td}></td>
+                    <td style={{ ...td, textAlign: 'center' }}>{internalPosts.reduce((s, p) => s + (p.guard_count || 0), 0)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#16a34a' }}>{fmt(internalPosts.reduce((s, p) => s + (p.official_salary || 0), 0))}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#f59e0b' }}>{fmt(internalPosts.reduce((s, p) => s + (p.unofficial_salary || 0), 0))}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{fmt(internalSalary)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ============ GRAND TOTAL ============ */}
+        {!loading && guardPosts.length > 0 && (
+          <div style={{ borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg2)', marginBottom: 24 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <tbody>
+                <tr style={{ fontWeight: 700, background: 'var(--bg)' }}>
+                  <td style={{ ...td, width: '40%' }}>ОБЩИЙ ФОТ (объекты + отделы)</td>
+                  <td style={{ ...td, textAlign: 'center' }}>{totalGuards} чел.</td>
+                  <td style={{ ...td, textAlign: 'right', color: '#2563eb' }}>{fmt(totalSalary)} тг</td>
+                  <td style={{ ...td, textAlign: 'right', color: 'var(--text2)', fontSize: 12 }}>
+                    объекты: {fmt(clientSalary)} + отделы: {fmt(internalSalary)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Sync history */}
         {syncLogs.length > 0 && (
