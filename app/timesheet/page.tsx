@@ -163,9 +163,13 @@ export default function TimesheetPage() {
         }),
       })
       const result = await syncRes.json()
-      if (!syncRes.ok) throw new Error(result.error || `Sync API: ${syncRes.status}`)
+      if (!syncRes.ok) {
+        const details = result.details ? `\n${result.details.join('\n')}` : ''
+        throw new Error(`${result.error || `Sync API: ${syncRes.status}`}${details}`)
+      }
 
-      setMsg(`Синхронизировано: ${result.totalEntries} записей по ${result.totals?.totalGuards || 0} охранникам`)
+      const warns = result.warnings ? ` (предупреждений: ${result.warnings.length})` : ''
+      setMsg(`Синхронизировано: ${result.totalEntries} записей, ${result.postsLinked} постов${warns}`)
       const s = createClient(); loadData(s)
     } catch (err: any) {
       setMsg(`Ошибка: ${err.message}`)

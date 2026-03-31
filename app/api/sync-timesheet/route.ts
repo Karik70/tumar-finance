@@ -72,7 +72,18 @@ async function saveTimesheetData(body: any) {
     return NextResponse.json({ error: 'Missing required fields: month, guardPosts' }, { status: 400 });
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  // Debug: check env vars
+  if (!supabaseUrl || !serviceKey) {
+    return NextResponse.json({
+      error: `Missing env vars: SUPABASE_URL=${!!supabaseUrl}, SERVICE_KEY=${!!serviceKey}`,
+    }, { status: 500 });
+  }
+
   const supabase = getServiceClient();
+  const errors: string[] = [];
 
   // 1. Upsert guard posts
   const guardPostMap: Record<string, string> = {};
@@ -81,21 +92,34 @@ async function saveTimesheetData(body: any) {
       .from('guard_posts')
       .upsert({
         external_id: gp.guardPostId,
-        number: gp.number,
-        callsign: gp.callsign,
-        name: gp.name,
-        address: gp.address,
-        rate: gp.rate,
+        number: gp.number || '',
+        callsign: gp.callsign || '',
+        name: gp.name || '',
+        address: gp.address || '',
+        rate: gp.rate || 0,
         synced_at: syncedAt || new Date().toISOString(),
       }, { onConflict: 'external_id' })
       .select('id, external_id')
       .single();
 
     if (error) {
-      console.error('Guard post upsert error:', error);
+      errors.push(`GuardPost[${gp.callsign}]: ${error.message} (code: ${error.code}, details: ${error.details})`);
       continue;
     }
     guardPostMap[gp.guardPostId] = data.id;
+  }
+
+  // If ALL guard posts failed, return error immediately with details
+  if (Object.keys(guardPostMap).length === 0 && guardPosts.length > 0) {
+    return NextResponse.json({
+      error: 'All guard post upserts failed',
+      details: errors.slice(0, 5),
+      guardPostsSample: guardPosts.slice(0, 2).map((gp: any) => ({
+        guardPostId: gp.guardPostId,
+        callsign: gp.callsign,
+        name: gp.name,
+      })),
+    }, { status: 500 });
   }
 
   // 2. Upsert guards and timesheet entries
@@ -110,18 +134,18 @@ async function saveTimesheetData(body: any) {
         .from('guards')
         .upsert({
           external_id: guard.guardId,
-          surname: guard.surname,
-          first_name: guard.firstName,
-          patronymic: guard.patronymic,
-          iin: guard.iin,
-          is_official: guard.isOfficial,
+          surname: guard.surname || '',
+          first_name: guard.firstName || '',
+          patronymic: guard.patronymic || '',
+          iin: guard.iin || '',
+          is_official: guard.isOfficial || false,
           synced_at: syncedAt || new Date().toISOString(),
         }, { onConflict: 'external_id' })
         .select('id')
         .single();
 
       if (guardError) {
-        console.error('Guard upsert error:', guardError);
+        errors.push(`Guard[${guard.surname}]: ${guardError.message} (code: ${guardError.code})`);
         continue;
       }
 
@@ -132,17 +156,17 @@ async function saveTimesheetData(body: any) {
           month: month,
           guard_post_id: gpId,
           guard_id: guardData.id,
-          rate: gp.rate,
-          days_worked: guard.daysWorked,
-          shifts_worked: guard.shiftsWorked,
-          total_hours: guard.totalHours,
-          salary: guard.salary,
-          is_official: guard.isOfficial,
+          rate: gp.rate || 0,
+          days_worked: guard.daysWorked || 0,
+          shifts_worked: guard.shiftsWorked || 0,
+          total_hours: guard.totalHours || 0,
+          salary: guard.salary || 0,
+          is_official: guard.isOfficial || false,
           synced_at: syncedAt || new Date().toISOString(),
         }, { onConflict: 'month,guard_post_id,guard_id' });
 
       if (tsError) {
-        console.error('Timesheet upsert error:', tsError);
+        errors.push(`Timesheet[${guard.surname}]: ${tsError.message} (code: ${tsError.code})`);
         continue;
       }
       totalEntries++;
@@ -169,6 +193,8 @@ async function saveTimesheetData(body: any) {
     message: `Synced ${totalEntries} timesheet entries for ${guardPosts.length} posts`,
     month,
     totalEntries,
+    postsLinked: Object.keys(guardPostMap).length,
     totals,
+    ...(errors.length > 0 ? { warnings: errors.slice(0, 10) } : {}),
   });
 }
