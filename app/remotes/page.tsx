@@ -224,16 +224,19 @@ export default function RemotesPage() {
   async function addClient() {
     if (!form.pult_number.trim() || !form.name.trim()) return
     const s = createClient()
-    const { data, error } = await s.from('clients').insert({
+    const { data, error } = await s.from('clients').upsert({
       pult_number: form.pult_number.trim(),
       name: form.name.trim(),
       address: form.address.trim() || null,
       phone: form.phone.trim() || null,
       monthly_rate: parseFloat(form.monthly_rate) || 0,
       is_active: true,
-    }).select().single()
+    }, { onConflict: 'pult_number' }).select().single()
     if (!error && data) {
-      setClients(prev => [...prev, data].sort((a, b) => a.pult_number.localeCompare(b.pult_number, undefined, { numeric: true })))
+      setClients(prev => {
+        const withoutCurrent = prev.filter(c => c.id !== data.id)
+        return [...withoutCurrent, data].sort((a, b) => a.pult_number.localeCompare(b.pult_number, undefined, { numeric: true }))
+      })
       setForm({ pult_number: '', name: '', address: '', phone: '', monthly_rate: '' })
       setShowAdd(false)
     }
@@ -283,22 +286,67 @@ export default function RemotesPage() {
       setImportStatus(`Найдено ${parsed.length} пультов. Загружаю...`)
       const s = createClient()
       let imported = 0
+      let restored = 0
+      let skipped = 0
       const errors: string[] = []
+      const existingClients = new Map<string, { id: string; is_active: boolean }>()
+      let from = 0
+      const PAGE = 1000
+
+      while (true) {
+        const { data, error } = await s
+          .from('clients')
+          .select('id, pult_number, is_active')
+          .order('pult_number')
+          .range(from, from + PAGE - 1)
+
+        if (error) {
+          errors.push(`Не удалось загрузить существующие пульты: ${error.message}`)
+          break
+        }
+        if (!data || data.length === 0) break
+
+        for (const row of data) {
+          if (row.pult_number) {
+            existingClients.set(String(row.pult_number).trim(), {
+              id: row.id,
+              is_active: !!row.is_active,
+            })
+          }
+        }
+
+        if (data.length < PAGE) break
+        from += PAGE
+      }
 
       for (const item of parsed) {
-        const { error } = await s.from('clients').upsert({
-          pult_number: item.pult_number,
+        const pultNumber = item.pult_number.trim()
+        const existingClient = existingClients.get(pultNumber)
+        if (existingClient?.is_active) {
+          skipped++
+          continue
+        }
+
+        const payload = {
+          pult_number: pultNumber,
           name: item.name,
           address: item.address,
           phone: item.phone,
           is_active: true,
-        }, { onConflict: 'pult_number' })
-        if (!error) imported++
+        }
+        const { error } = existingClient
+          ? await s.from('clients').update(payload).eq('id', existingClient.id)
+          : await s.from('clients').insert(payload)
+        if (!error) {
+          if (existingClient) restored++
+          else imported++
+          existingClients.set(pultNumber, { id: existingClient?.id || '', is_active: true })
+        }
         else errors.push(`Пульт ${item.pult_number}: ${error.message}`)
       }
 
       const errMsg = errors.length > 0 ? ` | Ошибки: ${errors.slice(0, 3).join('; ')}` : ''
-      setImportStatus(`Импортировано: ${imported} из ${parsed.length}${errMsg}`)
+      setImportStatus(`Добавлено новых: ${imported}, восстановлено скрытых: ${restored}, пропущено активных: ${skipped}${errMsg}`)
       await loadAll(s, selectedMonth)
       setTimeout(() => setImportStatus(null), 5000)
     } catch (err: any) {
