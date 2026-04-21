@@ -1,16 +1,46 @@
 import { NextResponse } from 'next/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import { parseKaspi } from '@/lib/parsers/kaspi';
 import { parseHalyk } from '@/lib/parsers/halyk';
 import { parseHalykExcel } from '@/lib/parsers/halyk-excel';
 
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+async function requireAuthenticatedUser(request: Request) {
+  const authHeader = request.headers.get('authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
+    const authError = await requireAuthenticatedUser(request);
+    if (authError) return authError;
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json({ error: 'File is too large. Maximum size is 20 MB.' }, { status: 413 });
     }
 
     const arrayBuffer = await file.arrayBuffer();

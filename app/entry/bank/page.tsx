@@ -62,7 +62,15 @@ export default function BankEntryPage() {
     formData.append('file', file)
 
     try {
-      const res = await fetch('/api/upload-statement', { method: 'POST', body: formData })
+      const s = createClient()
+      const { data: sessionData } = await s.auth.getSession()
+      if (!sessionData.session) throw new Error('Сессия истекла. Войдите заново.')
+
+      const res = await fetch('/api/upload-statement', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: formData,
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Ошибка загрузки')
 

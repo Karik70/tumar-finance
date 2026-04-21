@@ -157,9 +157,16 @@ export default function TimesheetPage() {
 
     setSyncing(true); setMsg('')
     try {
+      const s = createClient()
+      const { data: sessionData } = await s.auth.getSession()
+      if (!sessionData.session) throw new Error('Сессия истекла. Войдите заново.')
+
       const syncRes = await fetch('/api/sync-timesheet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
         body: JSON.stringify({
           dashboardUrl: dashboardUrl.replace(/\/+$/, ''),
           integrationKey,
@@ -174,7 +181,7 @@ export default function TimesheetPage() {
 
       const warns = result.warnings ? ` (предупреждений: ${result.warnings.length})` : ''
       setMsg(`Синхронизировано: ${result.totalEntries} записей, ${result.postsLinked} постов${warns}`)
-      const s = createClient(); loadData(s)
+      loadData(s)
     } catch (err: any) {
       setMsg(`Ошибка: ${err.message}`)
     }

@@ -1,6 +1,27 @@
 import { NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
+async function requireAuthenticatedUser(request: Request) {
+  const authHeader = request.headers.get('authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  return null;
+}
+
 // Server-side Supabase client (service role for upserts)
 function getServiceClient() {
   return createSupabaseClient(
@@ -32,6 +53,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const authError = await requireAuthenticatedUser(request);
+    if (authError) return authError;
 
     // Fetch from TumarDashboard (server-to-server, no CORS issues)
     const url = `${dashboardUrl.replace(/\/+$/, '')}/api/integration/timesheet-sync?month=${month}`;
